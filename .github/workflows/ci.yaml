@@ -1,0 +1,30 @@
+name: CI
+on: [push, pull_request]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Run Check
+        run: cargo check
+      - name: Run fmt
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy -- -D warning
+  test:
+    name: Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test rscni library
+        run: cargo test
