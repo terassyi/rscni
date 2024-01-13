@@ -1,6 +1,6 @@
 [package]
 name = "rscni"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 authors = ["terassyi <iscale821@gmail.com>"]
 repository = "https://github.com/terassyi/rscni"
