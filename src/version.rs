@@ -14,6 +14,15 @@ pub struct PluginInfo {
     pub(crate) supported_versions: Vec<String>,
 }
 
+impl PluginInfo {
+    pub fn new(cni_version: &str, supported_versions: Vec<String>) -> PluginInfo {
+        PluginInfo {
+            cni_version: cni_version.to_string(),
+            supported_versions,
+        }
+    }
+}
+
 impl Default for PluginInfo {
     fn default() -> Self {
         PluginInfo {

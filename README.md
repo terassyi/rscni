@@ -6,7 +6,7 @@ This is based on [containernetworking/cni](https://github.com/containernetworkin
 ![GitHub release](https://img.shields.io/github/release/terassyi/rscni.svg?maxAge=60)
 [![crate-name at crates.io](https://img.shields.io/crates/v/rscni.svg)](https://crates.io/crates/rscni)
 [![crate-name at docs.rs](https://docs.rs/rscni/badge.svg)](https://docs.rs/rscni)
-![CI](https://github.com/terassyi/sart/workflows/ci/badge.svg)
+![CI](https://github.com/terassyi/rscni/workflows/ci/badge.svg)
 
 > [!WARNING]
 > RsCNI is under experimental.
