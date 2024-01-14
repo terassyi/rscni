@@ -32,7 +32,7 @@ pub struct NetConf {
     /// If supported by the plugin, sets up an IP masquerade on the host for this network.
     /// This is necessary if the host will act as a gateway to subnets that are not able to route to the IP assigned to the container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ip_masq: Option<bool>,
+    pub ip_masq: Option<bool>,
     /// Dictionary with IPAM (IP Address Management) specific values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ipam: Option<Ipam>,
