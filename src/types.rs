@@ -5,7 +5,7 @@ use serde_json::Value;
 
 /// NetConf will be given as a JSON serialized data from stdin when plugin is called.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#section-1-network-configuration-format>.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct NetConf {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
