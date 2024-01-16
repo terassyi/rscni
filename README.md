@@ -37,6 +37,15 @@ As we implement some functions satisfy this type, we can build our own CNI plugi
 pub type CmdFn = fn(args: Args) -> Result<CNIResult, Error>;
 ```
 
+For async version, we have to implement the following type.
+
+> [!NOTE]
+> To use async version of rscni, please enable the `async` feature in your Cargo.toml.
+
+```rust
+pub type CmdFn = fn(Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>>;
+```
+
 To run `Plugin`, we can call `run()` method like following.
 
 ```rust
@@ -49,6 +58,11 @@ fn main() {
 ```
 
 For details, please see [examples/rscni-debug](./examples/README.md).
+
+### Example project
+
+- [rscni-debug](./examples/rscni-debug/src/main.rs)
+- [async-rscni-debug](./examples/async-rscni-debug/src/main.rs)
 
 
 ## License
