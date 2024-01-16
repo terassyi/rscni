@@ -4,18 +4,16 @@ use std::{
     str::FromStr,
 };
 
+use crate::{
+    types::{Args, CNI_ARGS, CNI_COMMAND, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH},
+    util::{get_env, IoTarget},
+};
+
 use super::{
     error::Error,
     types::{CNIResult, ErrorResult, NetConf},
     version::PluginInfo,
 };
-
-const CNI_COMMAND: &str = "CNI_COMMAND";
-const CNI_CONTAINERID: &str = "CNI_CONTAINERID";
-const CNI_NETNS: &str = "CNI_NETNS";
-const CNI_IFNAME: &str = "CNI_IFNAME";
-const CNI_ARGS: &str = "CNI_ARGS";
-const CNI_PATH: &str = "CNI_PATH";
 
 enum Cmd {
     Add { f: CmdFn, args: Args },
@@ -60,30 +58,6 @@ impl From<Cmd> for &str {
     }
 }
 
-/// Args is input data for the CNI call.
-/// All fields except for `config` are given as environment values.
-/// `config` field is given as a JSON format data([NetConf]) from stdin.
-/// Depending on the type of command, some fields are omitted.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#cni-operations>.
-#[derive(Debug, Default, Clone)]
-pub struct Args {
-    /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
-    /// Must not be empty.
-    /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
-    pub container_id: String,
-    /// A reference to the container's "isolation domain".
-    /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/[nsname]).
-    pub netns: Option<PathBuf>,
-    /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    pub ifname: String,
-    /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
-    pub args: Option<String>,
-    /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
-    pub path: Vec<PathBuf>,
-    /// Please see [NetConf].
-    pub config: Option<NetConf>,
-}
-
 /// CmdFn is the function type of callback functions for CNI Add, Del and Check commands.
 /// It accepts [Args] and returns [CNIResult] or [Error].
 /// Users have to define three functions(add, del and check) satisfy this type as CNI commands.
@@ -104,22 +78,6 @@ pub struct Plugin {
     /// The message of this plugin.
     about: String,
     io: IoTarget,
-}
-
-struct IoTarget {
-    stdin: Box<dyn Read>,
-    stdout: Box<dyn Write>,
-    stderr: Box<dyn Write>,
-}
-
-impl Default for IoTarget {
-    fn default() -> Self {
-        IoTarget {
-            stdin: Box::new(std::io::stdin()),
-            stdout: Box::new(std::io::stdout()),
-            stderr: Box::new(std::io::stderr()),
-        }
-    }
 }
 
 impl Plugin {
@@ -297,21 +255,6 @@ impl Plugin {
             details: err.details(),
         }
     }
-}
-
-/// This function returns the environment value.
-/// If the value doesn't exist or is invalid, this returns [Error::InvalidEnvValue].
-pub fn get_env<T>(name: &str) -> Result<T, Error>
-where
-    T: FromStr,
-    T::Err: std::error::Error + 'static,
-{
-    std::env::var(name)
-        .map_err(|e| Error::InvalidEnvValue(e.to_string()))
-        .and_then(|v| {
-            v.parse()
-                .map_err(|e: T::Err| Error::InvalidEnvValue(e.to_string()))
-        })
 }
 
 #[cfg(test)]

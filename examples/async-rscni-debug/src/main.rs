@@ -1,23 +1,28 @@
-use std::{collections::HashMap, fs, io::Write, path::PathBuf};
+use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin};
 
 use rscni::{
+    async_skel::Plugin,
     error::Error,
-    skel::{Args, Plugin},
-    types::CNIResult,
+    types::{Args, CNIResult},
     version::PluginInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::io::AsyncWriteExt;
 
 const ABOUT_MSG: &str = "RsCNI Debug Plugin shows CNI args";
 const ERROR_CODE_FILE_OPEN: u32 = 100;
 const ERROR_MSG_FILE_OPEN: &str = "Failed to open file";
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let version_info = PluginInfo::default();
     let mut dispatcher = Plugin::new(add, del, check, version_info, ABOUT_MSG);
 
-    dispatcher.run().expect("Failed to complete the CNI call");
+    dispatcher
+        .run()
+        .await
+        .expect("Failed to complete the CNI call");
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,16 +32,18 @@ struct DebugConf {
 }
 
 impl DebugConf {
-    fn open_file(&self, container_id: &str, cmd: &str) -> Result<std::fs::File, Error> {
-        fs::create_dir_all(self.cni_output.as_os_str().to_str().unwrap()).map_err(|e| {
-            Error::Custom(
-                ERROR_CODE_FILE_OPEN,
-                ERROR_MSG_FILE_OPEN.to_string(),
-                e.to_string(),
-            )
-        })?;
+    async fn open_file(&self, container_id: &str, cmd: &str) -> Result<tokio::fs::File, Error> {
+        tokio::fs::create_dir_all(self.cni_output.as_os_str().to_str().unwrap())
+            .await
+            .map_err(|e| {
+                Error::Custom(
+                    ERROR_CODE_FILE_OPEN,
+                    ERROR_MSG_FILE_OPEN.to_string(),
+                    e.to_string(),
+                )
+            })?;
         let path = self.cni_output.join(format!("{container_id}-{cmd}"));
-        std::fs::File::create(path).map_err(|e| {
+        tokio::fs::File::create(path).await.map_err(|e| {
             Error::Custom(
                 ERROR_CODE_FILE_OPEN,
                 ERROR_MSG_FILE_OPEN.to_string(),
@@ -54,7 +61,12 @@ impl DebugConf {
     }
 }
 
-fn add(args: Args) -> Result<CNIResult, Error> {
+fn add(args: Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>> {
+    let fut = async { inner_add(args).await };
+    Box::pin(fut)
+}
+
+async fn inner_add(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Add";
     let cni_output = output_args(cmd, &args)?;
 
@@ -63,8 +75,9 @@ fn add(args: Args) -> Result<CNIResult, Error> {
     ))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let mut file = debug_conf.open_file(&args.container_id, cmd)?;
+    let mut file = debug_conf.open_file(&args.container_id, cmd).await?;
     file.write(cni_output.as_bytes())
+        .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
     Ok(match net_conf.prev_result {
@@ -73,7 +86,12 @@ fn add(args: Args) -> Result<CNIResult, Error> {
     })
 }
 
-fn del(args: Args) -> Result<CNIResult, Error> {
+fn del(args: Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>> {
+    let fut = async { inner_del(args).await };
+    Box::pin(fut)
+}
+
+async fn inner_del(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Del";
     let cni_output = output_args(cmd, &args)?;
 
@@ -82,8 +100,9 @@ fn del(args: Args) -> Result<CNIResult, Error> {
     ))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let mut file = debug_conf.open_file(&args.container_id, cmd)?;
+    let mut file = debug_conf.open_file(&args.container_id, cmd).await?;
     file.write(cni_output.as_bytes())
+        .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
     Ok(match net_conf.prev_result {
@@ -92,7 +111,12 @@ fn del(args: Args) -> Result<CNIResult, Error> {
     })
 }
 
-fn check(args: Args) -> Result<CNIResult, Error> {
+fn check(args: Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>> {
+    let fut = async { inner_check(args).await };
+    Box::pin(fut)
+}
+
+async fn inner_check(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Check";
     let cni_output = output_args(cmd, &args)?;
 
@@ -101,8 +125,9 @@ fn check(args: Args) -> Result<CNIResult, Error> {
     ))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let mut file = debug_conf.open_file(&args.container_id, cmd)?;
+    let mut file = debug_conf.open_file(&args.container_id, cmd).await?;
     file.write(cni_output.as_bytes())
+        .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
     Ok(match net_conf.prev_result {
