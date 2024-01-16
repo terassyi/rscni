@@ -1,7 +1,38 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+pub(super) const CNI_COMMAND: &str = "CNI_COMMAND";
+pub(super) const CNI_CONTAINERID: &str = "CNI_CONTAINERID";
+pub(super) const CNI_NETNS: &str = "CNI_NETNS";
+pub(super) const CNI_IFNAME: &str = "CNI_IFNAME";
+pub(super) const CNI_ARGS: &str = "CNI_ARGS";
+pub(super) const CNI_PATH: &str = "CNI_PATH";
+
+/// Args is input data for the CNI call.
+/// All fields except for `config` are given as environment values.
+/// `config` field is given as a JSON format data([NetConf]) from stdin.
+/// Depending on the type of command, some fields are omitted.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#cni-operations>.
+#[derive(Debug, Default, Clone)]
+pub struct Args {
+    /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
+    /// Must not be empty.
+    /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
+    pub container_id: String,
+    /// A reference to the container's "isolation domain".
+    /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/[nsname]).
+    pub netns: Option<PathBuf>,
+    /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
+    pub ifname: String,
+    /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
+    pub args: Option<String>,
+    /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
+    pub path: Vec<PathBuf>,
+    /// Please see [NetConf].
+    pub config: Option<NetConf>,
+}
 
 /// NetConf will be given as a JSON serialized data from stdin when plugin is called.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#section-1-network-configuration-format>.

@@ -4,6 +4,8 @@
 //! It accepts callback functions defined as `CmdFn` to represent CNI Add, Del and Check commands.
 //!
 //! Please see [rscni-debug](github.com/terassyi/rscni/blob/main/examples/README.md) for the example implementation.
+//! To use async version of rscni, please use it with `feature=async` flag.
+//! The usage of async version, see [async-rscni-debug](github.com/terassyi/rscni/blob/main/examples/async-rscni-debug/main.rs).
 //!
 //! # Quick start
 //!
@@ -16,7 +18,12 @@
 //! }
 //! ```
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#[cfg(any(feature = "async", doc))]
+pub mod async_skel;
 pub mod error;
+#[cfg(feature = "std")]
 pub mod skel;
 pub mod types;
+mod util;
 pub mod version;

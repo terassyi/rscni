@@ -1,11 +1,11 @@
 # RsCNI debug plugin
 
-`rscni-debug` is for debugging CNI plugin development.
+`rscni-debug` and `async-rscni-debug` is for debugging CNI plugin development.
 This is based on [containernetworking/cni/plugins/cni](https://github.com/containernetworking/cni/tree/v1.0.0/plugins/debug).
 
 ## Configuration
 
-To run `rscni-debug` as a part of CNI chaining, we have to add the following configuration in CNI configuration that is placed in `/etc/cni/net.d`.
+To run `rscni-debug`(`async-rscni-debug`) as a part of CNI chaining, we have to add the following configuration in CNI configuration that is placed in `/etc/cni/net.d`.
 
 Please refer to [netconf.json](./netconf.json) to see the complete CNI configuration.
 
@@ -21,6 +21,7 @@ Please refer to [netconf.json](./netconf.json) to see the complete CNI configura
 ## Run
 
 We can try to use `rscni-debug` in the kind cluster.
+To use async version(`async-rscni-debug`), please run `make start ASYNC=true`.
 
 ```console
 $ # Build a rscni-debug binary
