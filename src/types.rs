@@ -3,6 +3,8 @@ use std::{collections::HashMap, path::PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::error::Error;
+
 pub(super) const CNI_COMMAND: &str = "CNI_COMMAND";
 pub(super) const CNI_CONTAINERID: &str = "CNI_CONTAINERID";
 pub(super) const CNI_NETNS: &str = "CNI_NETNS";
@@ -229,7 +231,7 @@ pub enum Protocol {
 /// ErrorResult is converted from Error.
 /// This is actual data structure of Error CNI Result Type.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorResult {
     /// The same value as provided by the configuration.
     pub cni_version: String,
@@ -239,6 +241,25 @@ pub struct ErrorResult {
     pub msg: String,
     /// A longer message describing the error.
     pub details: String,
+}
+
+impl From<&ErrorResult> for Error {
+    fn from(res: &ErrorResult) -> Self {
+        if res.code > 100 {
+            return Error::Custom(res.code, res.msg.clone(), res.details.clone());
+        }
+        match res.code {
+            1 => Error::IncompatibleVersion(res.details.clone()),
+            2 => Error::UnsupportedNetworkConfiguration(res.details.clone()),
+            3 => Error::NotExist(res.details.clone()),
+            4 => Error::InvalidEnvValue(res.details.clone()),
+            5 => Error::IOFailure(res.details.clone()),
+            6 => Error::FailedToDecode(res.details.clone()),
+            7 => Error::InvalidNetworkConfig(res.details.clone()),
+            11 => Error::TryAgainLater(res.details.clone()),
+            _ => Error::FailedToDecode(format!("unknown error code: {}", res.code)),
+        }
+    }
 }
 
 #[cfg(test)]
