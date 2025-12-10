@@ -1,29 +1,48 @@
 use std::{collections::HashMap, fs, io::Write, path::PathBuf};
 
 use rscni::{
+    cni::{Cni, Plugin},
     error::Error,
-    skel::Plugin,
     types::{Args, CNIResult},
-    version::PluginInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const ABOUT_MSG: &str = "RsCNI Debug Plugin shows CNI args";
+const OUTPUT_FILE_PATH: &str = "/tmp/rscni-debug";
 const ERROR_CODE_FILE_OPEN: u32 = 100;
 const ERROR_MSG_FILE_OPEN: &str = "Failed to open file";
 
 fn main() {
-    let version_info = PluginInfo::default();
-    let mut dispatcher = Plugin::new(add, del, check, version_info, ABOUT_MSG);
+    let plugin = Plugin::default().msg(ABOUT_MSG);
 
-    dispatcher.run().expect("Failed to complete the CNI call");
+    let debug_conf = DebugConf {
+        cni_output: PathBuf::from(OUTPUT_FILE_PATH),
+    };
+
+    plugin
+        .run(&debug_conf)
+        .expect("Failed to complete the CNI call");
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DebugConf {
     cni_output: PathBuf,
+}
+
+impl Cni for DebugConf {
+    fn add(&self, args: Args) -> Result<CNIResult, Error> {
+        add(args)
+    }
+
+    fn del(&self, args: Args) -> Result<CNIResult, Error> {
+        del(args)
+    }
+
+    fn check(&self, args: Args) -> Result<CNIResult, Error> {
+        check(args)
+    }
 }
 
 impl DebugConf {

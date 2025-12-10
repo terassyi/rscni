@@ -1,9 +1,26 @@
-use std::{collections::HashMap, path::PathBuf};
+//! CNI specification types and data structures.
+//!
+//! This module contains all the types defined by the [CNI specification](https://www.cni.dev/),
+//! including network configuration, results, and related structures.
+//!
+//! # Main Types
+//!
+//! - [`Args`] - Input parameters for CNI operations (from environment and stdin)
+//! - [`NetConf`] - Network configuration passed to the plugin
+//! - [`CNIResult`] - Result returned by ADD/DEL/CHECK operations
+//! - [`Interface`], [`IpConfig`], [`Route`] - Components of the CNI result
+//! - [`Dns`], [`Ipam`] - Network configuration components
+//!
+
+use std::{collections::HashMap, io::Read, path::PathBuf, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::Error;
+use crate::{
+    error::Error,
+    util::{Env, Io},
+};
 
 pub(super) const CNI_COMMAND: &str = "CNI_COMMAND";
 pub(super) const CNI_CONTAINERID: &str = "CNI_CONTAINERID";
@@ -12,9 +29,53 @@ pub(super) const CNI_IFNAME: &str = "CNI_IFNAME";
 pub(super) const CNI_ARGS: &str = "CNI_ARGS";
 pub(super) const CNI_PATH: &str = "CNI_PATH";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Cmd {
+    Add,
+    Del,
+    Check,
+    Version,
+    /// Unset state when `CNI_COMMAND` is not set.
+    UnSet,
+}
+
+impl FromStr for Cmd {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ADD" => Ok(Self::Add),
+            "DEL" => Ok(Self::Del),
+            "CHECK" => Ok(Self::Check),
+            "VERSION" => Ok(Self::Version),
+            "" => Ok(Self::UnSet),
+            _ => Err(Error::InvalidEnvValue(format!("unknown CNI_COMMAND: {s}"))),
+        }
+    }
+}
+
+impl From<Cmd> for &str {
+    fn from(cmd: Cmd) -> Self {
+        match cmd {
+            Cmd::Add => "ADD",
+            Cmd::Del => "DEL",
+            Cmd::Check => "CHECK",
+            Cmd::Version => "VERSION",
+            Cmd::UnSet => "",
+        }
+    }
+}
+
+impl Cmd {
+    pub(super) fn get_from_env<E: Env>() -> Result<Self, Error> {
+        Self::from_str(&E::get::<String>(CNI_COMMAND)?)
+    }
+}
+
 /// Args is input data for the CNI call.
+///
 /// All fields except for `config` are given as environment values.
-/// `config` field is given as a JSON format data([NetConf]) from stdin.
+/// `config` field is given as a JSON format data([`NetConf`]) from stdin.
 /// Depending on the type of command, some fields are omitted.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#cni-operations>.
 #[derive(Debug, Default, Clone)]
@@ -32,11 +93,46 @@ pub struct Args {
     pub args: Option<String>,
     /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
     pub path: Vec<PathBuf>,
-    /// Please see [NetConf].
+    /// Please see [`NetConf`].
     pub config: Option<NetConf>,
 }
 
-/// NetConf will be given as a JSON serialized data from stdin when plugin is called.
+impl Args {
+    pub(crate) fn build<E: Env, I: Io>() -> Result<Self, Error> {
+        // let cmd = Cmd::from_str(&E::get::<String>(CNI_COMMAND)?)?;
+        let container_id = E::get(CNI_CONTAINERID)?;
+        let ifname = E::get(CNI_IFNAME)?;
+        let netns = PathBuf::from_str(&E::get::<String>(CNI_NETNS)?)
+            .map_err(|e| Error::InvalidEnvValue(e.to_string()))?;
+        let path: Vec<PathBuf> = E::get::<String>(CNI_PATH)?
+            .split(':')
+            .map(PathBuf::from)
+            .collect();
+        let args = match E::get::<String>(CNI_ARGS)? {
+            v if v.is_empty() => None,
+            v => Some(v),
+        };
+
+        let mut buf = String::new();
+        I::io_in()
+            .read_to_string(&mut buf)
+            .map_err(|e| Error::IOFailure(e.to_string()))?;
+
+        let config: NetConf =
+            serde_json::from_str(&buf).map_err(|e| Error::FailedToDecode(e.to_string()))?;
+
+        Ok(Self {
+            container_id,
+            netns: Some(netns),
+            ifname,
+            args,
+            path,
+            config: Some(config),
+        })
+    }
+}
+
+/// `NetConf` will be given as a JSON serialized data from stdin when plugin is called.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#section-1-network-configuration-format>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -53,7 +149,7 @@ pub struct NetConf {
     pub r#type: String,
     /// Either true or false.
     /// If disableCheck is true, runtimes must not call CHECK for this network configuration list.
-    /// This allows an administrator to prevent CHECKing where a combination of plugins is known to return spurious errors.
+    /// This allows an administrator to prevent `CHECKing` where a combination of plugins is known to return spurious errors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disable_check: Option<bool>,
     /// A JSON object, consisting of the union of capabilities provided by the plugin and requested by the runtime
@@ -81,7 +177,7 @@ pub struct NetConf {
     pub custom: HashMap<String, Value>,
 }
 
-/// NetConfList is a network configuration format for administrators.
+/// `NetConfList` is a network configuration format for administrators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetConfList {
@@ -94,7 +190,7 @@ pub struct NetConfList {
     pub name: String,
     /// Either true or false.
     /// If disableCheck is true, runtimes must not call CHECK for this network configuration list.
-    /// This allows an administrator to prevent CHECKing where a combination of plugins is known to return spurious errors.
+    /// This allows an administrator to prevent `CHECKing` where a combination of plugins is known to return spurious errors.
     ///
     #[serde(default)] // default is false
     pub disable_check: bool,
@@ -155,8 +251,8 @@ pub struct Route {
     pub advmss: Option<u32>,
 }
 
-/// CNIResult represents the Success result type.
-/// CmdFm returns this if it finish successfully.
+/// `CNIResult` represents the Success result type.
+/// `CmdFm` returns this if it finish successfully.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#success>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -173,7 +269,7 @@ pub struct CNIResult {
     pub dns: Option<Dns>,
 }
 
-/// CNIResultWithCNIVersion represents actual output of CNI success result type as a JSON format.
+/// `CNIResultWithCNIVersion` represents actual output of CNI success result type as a JSON format.
 /// Users don't have to use this type directly.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -228,36 +324,36 @@ pub enum Protocol {
     Udp,
 }
 
-/// ErrorResult is converted from Error.
+/// `ErrorResult` is converted from Error.
 /// This is actual data structure of Error CNI Result Type.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct ErrorResult {
+pub(crate) struct ErrorResult {
     /// The same value as provided by the configuration.
-    pub cni_version: String,
+    pub(crate) cni_version: String,
     /// A numeric error code.
-    pub code: u32,
+    pub(crate) code: u32,
     /// A short message characterizing the error.
-    pub msg: String,
+    pub(crate) msg: String,
     /// A longer message describing the error.
-    pub details: String,
+    pub(crate) details: String,
 }
 
 impl From<&ErrorResult> for Error {
     fn from(res: &ErrorResult) -> Self {
         if res.code > 100 {
-            return Error::Custom(res.code, res.msg.clone(), res.details.clone());
+            return Self::Custom(res.code, res.msg.clone(), res.details.clone());
         }
         match res.code {
-            1 => Error::IncompatibleVersion(res.details.clone()),
-            2 => Error::UnsupportedNetworkConfiguration(res.details.clone()),
-            3 => Error::NotExist(res.details.clone()),
-            4 => Error::InvalidEnvValue(res.details.clone()),
-            5 => Error::IOFailure(res.details.clone()),
-            6 => Error::FailedToDecode(res.details.clone()),
-            7 => Error::InvalidNetworkConfig(res.details.clone()),
-            11 => Error::TryAgainLater(res.details.clone()),
-            _ => Error::FailedToDecode(format!("unknown error code: {}", res.code)),
+            1 => Self::IncompatibleVersion(res.details.clone()),
+            2 => Self::UnsupportedNetworkConfiguration(res.details.clone()),
+            3 => Self::NotExist(res.details.clone()),
+            4 => Self::InvalidEnvValue(res.details.clone()),
+            5 => Self::IOFailure(res.details.clone()),
+            6 => Self::FailedToDecode(res.details.clone()),
+            7 => Self::InvalidNetworkConfig(res.details.clone()),
+            11 => Self::TryAgainLater(res.details.clone()),
+            _ => Self::FailedToDecode(format!("unknown error code: {}", res.code)),
         }
     }
 }

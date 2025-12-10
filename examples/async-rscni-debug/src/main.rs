@@ -1,26 +1,30 @@
-use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin};
+use std::{collections::HashMap, path::PathBuf};
 
+use async_trait::async_trait;
 use rscni::{
-    async_skel::Plugin,
+    async_cni::{Cni, Plugin},
     error::Error,
     types::{Args, CNIResult},
-    version::PluginInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 
 const ABOUT_MSG: &str = "RsCNI Debug Plugin shows CNI args";
+const OUTPUT_FILE_PATH: &str = "/tmp/rscni-debug";
 const ERROR_CODE_FILE_OPEN: u32 = 100;
 const ERROR_MSG_FILE_OPEN: &str = "Failed to open file";
 
 #[tokio::main]
 async fn main() {
-    let version_info = PluginInfo::default();
-    let mut dispatcher = Plugin::new(add, del, check, version_info, ABOUT_MSG);
+    let plugin = Plugin::default().msg(ABOUT_MSG);
 
-    dispatcher
-        .run()
+    let debug_conf = DebugConf {
+        cni_output: PathBuf::from(OUTPUT_FILE_PATH),
+    };
+
+    plugin
+        .run(&debug_conf)
         .await
         .expect("Failed to complete the CNI call");
 }
@@ -29,6 +33,21 @@ async fn main() {
 #[serde(rename_all = "camelCase")]
 struct DebugConf {
     cni_output: PathBuf,
+}
+
+#[async_trait]
+impl Cni for DebugConf {
+    async fn add(&self, args: Args) -> Result<CNIResult, Error> {
+        add(args).await
+    }
+
+    async fn del(&self, args: Args) -> Result<CNIResult, Error> {
+        del(args).await
+    }
+
+    async fn check(&self, args: Args) -> Result<CNIResult, Error> {
+        check(args).await
+    }
 }
 
 impl DebugConf {
@@ -61,12 +80,7 @@ impl DebugConf {
     }
 }
 
-fn add(args: Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>> {
-    let fut = async { inner_add(args).await };
-    Box::pin(fut)
-}
-
-async fn inner_add(args: Args) -> Result<CNIResult, Error> {
+async fn add(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Add";
     let cni_output = output_args(cmd, &args)?;
 
@@ -86,12 +100,7 @@ async fn inner_add(args: Args) -> Result<CNIResult, Error> {
     })
 }
 
-fn del(args: Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>> {
-    let fut = async { inner_del(args).await };
-    Box::pin(fut)
-}
-
-async fn inner_del(args: Args) -> Result<CNIResult, Error> {
+async fn del(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Del";
     let cni_output = output_args(cmd, &args)?;
 
@@ -111,12 +120,7 @@ async fn inner_del(args: Args) -> Result<CNIResult, Error> {
     })
 }
 
-fn check(args: Args) -> Pin<Box<dyn Future<Output = Result<CNIResult, Error>>>> {
-    let fut = async { inner_check(args).await };
-    Box::pin(fut)
-}
-
-async fn inner_check(args: Args) -> Result<CNIResult, Error> {
+async fn check(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Check";
     let cni_output = output_args(cmd, &args)?;
 
