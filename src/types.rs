@@ -360,15 +360,51 @@ impl From<&ErrorResult> for Error {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, vec};
+    use std::{collections::HashMap, str::FromStr, vec};
 
     use rstest::rstest;
     use serde_json::json;
 
+    use crate::error::Error;
+
     use super::{
-        CNIResult, Dns, Interface, IpConfig, Ipam, NetConf, PortMapping, Protocol, Route,
+        CNIResult, Cmd, Dns, Interface, IpConfig, Ipam, NetConf, PortMapping, Protocol, Route,
         RuntimeConf,
     };
+
+    #[rstest]
+    #[case("ADD", Cmd::Add)]
+    #[case("DEL", Cmd::Del)]
+    #[case("CHECK", Cmd::Check)]
+    #[case("VERSION", Cmd::Version)]
+    #[case("", Cmd::UnSet)]
+    fn test_cmd_from_str(#[case] input: &str, #[case] expected: Cmd) {
+        let result = Cmd::from_str(input);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_cmd_from_str_invalid() {
+        let result = Cmd::from_str("INVALID");
+        assert!(result.is_err());
+        if let Err(Error::InvalidEnvValue(msg)) = result {
+            assert!(msg.contains("unknown CNI_COMMAND"));
+        } else {
+            panic!("Expected InvalidEnvValue error");
+        }
+    }
+
+    #[rstest]
+    #[case(Cmd::Add, "ADD")]
+    #[case(Cmd::Del, "DEL")]
+    #[case(Cmd::Check, "CHECK")]
+    #[case(Cmd::Version, "VERSION")]
+    #[case(Cmd::UnSet, "")]
+    fn test_cmd_to_str(#[case] cmd: Cmd, #[case] expected: &str) {
+        let result: &str = cmd.into();
+        assert_eq!(result, expected);
+    }
 
     #[rstest(
         input,
@@ -1360,5 +1396,514 @@ mod tests {
 
         let result_again: CNIResult = serde_json::from_str(&data).unwrap();
         assert_eq!(expected, result_again);
+    }
+
+    #[rstest]
+    #[case(
+        Interface {
+            name: "eth0".to_string(),
+            mac: "00:11:22:33:44:55".to_string(),
+            sandbox: Some("/var/run/netns/test".to_string()),
+        },
+        true
+    )]
+    #[case(
+        Interface {
+            name: "veth0".to_string(),
+            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+            sandbox: None,
+        },
+        false
+    )]
+    fn test_interface_serialize(#[case] interface: Interface, #[case] has_sandbox: bool) {
+        let json = serde_json::to_string(&interface).unwrap();
+        if !has_sandbox {
+            assert!(!json.contains("sandbox"));
+        }
+        let deserialized: Interface = serde_json::from_str(&json).unwrap();
+        assert_eq!(interface, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        IpConfig {
+            interface: Some(0),
+            address: "192.168.1.10/24".to_string(),
+            gateway: Some("192.168.1.1".to_string()),
+        },
+        true,
+        true
+    )]
+    #[case(
+        IpConfig {
+            interface: None,
+            address: "10.0.0.1/8".to_string(),
+            gateway: None,
+        },
+        false,
+        false
+    )]
+    fn test_ip_config_serialize(
+        #[case] ip_config: IpConfig,
+        #[case] has_interface: bool,
+        #[case] has_gateway: bool,
+    ) {
+        let json = serde_json::to_string(&ip_config).unwrap();
+        if !has_interface {
+            assert!(!json.contains("interface"));
+        }
+        if !has_gateway {
+            assert!(!json.contains("gateway"));
+        }
+        let deserialized: IpConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(ip_config, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        Route {
+            dst: "0.0.0.0/0".to_string(),
+            gw: Some("192.168.1.1".to_string()),
+            mtu: Some(1500),
+            advmss: Some(1460),
+        },
+        true,
+        true
+    )]
+    #[case(
+        Route {
+            dst: "10.0.0.0/8".to_string(),
+            gw: None,
+            mtu: None,
+            advmss: None,
+        },
+        false,
+        false
+    )]
+    fn test_route_serialize(#[case] route: Route, #[case] has_gw: bool, #[case] has_mtu: bool) {
+        let json = serde_json::to_string(&route).unwrap();
+        if !has_gw {
+            assert!(!json.contains("\"gw\""));
+        }
+        if !has_mtu {
+            assert!(!json.contains("\"mtu\""));
+        }
+        let deserialized: Route = serde_json::from_str(&json).unwrap();
+        assert_eq!(route, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        Dns {
+            nameservers: vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()],
+            domain: Some("example.com".to_string()),
+            search: Some(vec!["example.com".to_string(), "test.com".to_string()]),
+            options: Some(vec!["ndots:5".to_string()]),
+        },
+        true,
+        true,
+        true
+    )]
+    #[case(
+        Dns {
+            nameservers: vec!["1.1.1.1".to_string()],
+            domain: None,
+            search: None,
+            options: None,
+        },
+        false,
+        false,
+        false
+    )]
+    fn test_dns_serialize(
+        #[case] dns: Dns,
+        #[case] has_domain: bool,
+        #[case] has_search: bool,
+        #[case] has_options: bool,
+    ) {
+        let json = serde_json::to_string(&dns).unwrap();
+        if !has_domain {
+            assert!(!json.contains("\"domain\""));
+        }
+        if !has_search {
+            assert!(!json.contains("\"search\""));
+        }
+        if !has_options {
+            assert!(!json.contains("\"options\""));
+        }
+        let deserialized: Dns = serde_json::from_str(&json).unwrap();
+        assert_eq!(dns, deserialized);
+    }
+
+    #[rstest]
+    #[case(Protocol::Tcp, "tcp")]
+    #[case(Protocol::Udp, "udp")]
+    fn test_protocol_serialize(#[case] protocol: Protocol, #[case] expected: &str) {
+        let json = serde_json::to_string(&protocol).unwrap();
+        assert_eq!(json, format!("\"{}\"", expected));
+        let deserialized: Protocol = serde_json::from_str(&json).unwrap();
+        assert_eq!(protocol, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        PortMapping {
+            host_port: 8080,
+            container_port: 80,
+            protocol: Some(Protocol::Tcp),
+        },
+        true
+    )]
+    #[case(
+        PortMapping {
+            host_port: 443,
+            container_port: 443,
+            protocol: None,
+        },
+        false
+    )]
+    fn test_port_mapping_serialize(#[case] port_mapping: PortMapping, #[case] has_protocol: bool) {
+        let json = serde_json::to_string(&port_mapping).unwrap();
+        if !has_protocol {
+            assert!(!json.contains("\"protocol\""));
+        }
+        let deserialized: PortMapping = serde_json::from_str(&json).unwrap();
+        assert_eq!(port_mapping, deserialized);
+    }
+
+    #[rstest]
+    #[case(CNIResult::default(), false, false, false, false)]
+    #[case(
+        CNIResult {
+            interfaces: vec![Interface {
+                name: "eth0".to_string(),
+                mac: "00:11:22:33:44:55".to_string(),
+                sandbox: None,
+            }],
+            ips: vec![IpConfig {
+                interface: Some(0),
+                address: "192.168.1.10/24".to_string(),
+                gateway: Some("192.168.1.1".to_string()),
+            }],
+            routes: vec![Route {
+                dst: "0.0.0.0/0".to_string(),
+                gw: Some("192.168.1.1".to_string()),
+                mtu: None,
+                advmss: None,
+            }],
+            dns: Some(Dns {
+                nameservers: vec!["8.8.8.8".to_string()],
+                domain: None,
+                search: None,
+                options: None,
+            }),
+        },
+        true,
+        true,
+        true,
+        true
+    )]
+    fn test_cni_result_serialize(
+        #[case] result: CNIResult,
+        #[case] has_interfaces: bool,
+        #[case] has_ips: bool,
+        #[case] has_routes: bool,
+        #[case] has_dns: bool,
+    ) {
+        let json = serde_json::to_string(&result).unwrap();
+
+        if !has_interfaces {
+            assert!(!json.contains("\"interfaces\""));
+        }
+        if !has_ips {
+            assert!(!json.contains("\"ips\""));
+        }
+        if !has_routes {
+            assert!(!json.contains("\"routes\""));
+        }
+        if !has_dns {
+            assert!(!json.contains("\"dns\""));
+        }
+
+        let deserialized: CNIResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(result, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        Ipam {
+            r#type: "host-local".to_string(),
+            custom: HashMap::from([
+                ("subnet".to_string(), json!("10.1.0.0/16")),
+                ("gateway".to_string(), json!("10.1.0.1")),
+            ]),
+        },
+        vec!["subnet", "gateway"]
+    )]
+    #[case(
+        Ipam {
+            r#type: "dhcp".to_string(),
+            custom: HashMap::new(),
+        },
+        vec![]
+    )]
+    fn test_ipam_serialize(#[case] ipam: Ipam, #[case] expected_keys: Vec<&str>) {
+        let json = serde_json::to_string(&ipam).unwrap();
+        let deserialized: Ipam = serde_json::from_str(&json).unwrap();
+        assert_eq!(ipam.r#type, deserialized.r#type);
+        for key in expected_keys {
+            assert_eq!(ipam.custom.get(key), deserialized.custom.get(key));
+        }
+    }
+
+    #[rstest]
+    #[case(
+        RuntimeConf {
+            port_mappings: vec![PortMapping {
+                host_port: 8080,
+                container_port: 80,
+                protocol: Some(Protocol::Tcp),
+            }],
+            custom: HashMap::new(),
+        }
+    )]
+    #[case(
+        RuntimeConf {
+            port_mappings: vec![],
+            custom: HashMap::from([("mac".to_string(), json!("00:11:22:33:44:66"))]),
+        }
+    )]
+    fn test_runtime_conf_serialize(#[case] runtime_conf: RuntimeConf) {
+        let json = serde_json::to_string(&runtime_conf).unwrap();
+        let deserialized: RuntimeConf = serde_json::from_str(&json).unwrap();
+        assert_eq!(runtime_conf, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        r#"{
+  "cniVersion": "1.0.0",
+  "interfaces": [
+    {
+      "name": "eth0",
+      "mac": "00:11:22:33:44:55",
+      "sandbox": "/var/run/netns/test"
+    }
+  ],
+  "ips": [
+    {
+      "address": "10.1.0.5/16",
+      "gateway": "10.1.0.1",
+      "interface": 0
+    }
+  ],
+  "routes": [
+    {
+      "dst": "0.0.0.0/0"
+    }
+  ],
+  "dns": {
+    "nameservers": ["10.1.0.1"]
+  }
+}"#,
+        "1.0.0",
+        1, 1, 1, true
+    )]
+    #[case(
+        r#"{
+  "cniVersion": "1.1.0",
+  "interfaces": [],
+  "ips": [],
+  "routes": []
+}"#,
+        "1.1.0",
+        0, 0, 0, false
+    )]
+    fn test_cni_result_with_cni_version(
+        #[case] input: &str,
+        #[case] expected_version: &str,
+        #[case] expected_interfaces: usize,
+        #[case] expected_ips: usize,
+        #[case] expected_routes: usize,
+        #[case] has_dns: bool,
+    ) {
+        // CNI spec requires cniVersion in the success result
+        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#success
+        let result: super::CNIResultWithCNIVersion = serde_json::from_str(input).unwrap();
+        assert_eq!(result.cni_version, expected_version);
+        assert_eq!(result.inner.interfaces.len(), expected_interfaces);
+        assert_eq!(result.inner.ips.len(), expected_ips);
+        assert_eq!(result.inner.routes.len(), expected_routes);
+        assert_eq!(result.inner.dns.is_some(), has_dns);
+    }
+
+    #[test]
+    fn test_ipam_delegated_plugin_result() {
+        // IPAM delegated plugins return abbreviated Success object without interfaces
+        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#delegated-plugins-ipam
+        let input = r#"{
+  "ips": [
+    {
+      "address": "10.1.0.5/16",
+      "gateway": "10.1.0.1"
+    }
+  ],
+  "routes": [
+    {
+      "dst": "0.0.0.0/0"
+    }
+  ],
+  "dns": {
+    "nameservers": ["10.1.0.1"]
+  }
+}"#;
+
+        let result: CNIResult = serde_json::from_str(input).unwrap();
+        assert!(result.interfaces.is_empty());
+        assert_eq!(result.ips.len(), 1);
+        assert!(
+            result.ips[0].interface.is_none(),
+            "IPAM result should not have interface field in ips"
+        );
+        assert_eq!(result.routes.len(), 1);
+        assert!(result.dns.is_some());
+    }
+
+    #[rstest]
+    #[case(
+        Route {
+            dst: "192.168.0.0/16".to_string(),
+            gw: Some("10.1.0.1".to_string()),
+            mtu: Some(1500),
+            advmss: Some(1460),
+        },
+        true,
+        true
+    )]
+    #[case(
+        Route {
+            dst: "10.0.0.0/8".to_string(),
+            gw: None,
+            mtu: Some(9000),
+            advmss: None,
+        },
+        true,
+        false
+    )]
+    fn test_route_with_mtu_and_advmss(
+        #[case] route: Route,
+        #[case] has_mtu: bool,
+        #[case] has_advmss: bool,
+    ) {
+        // Route can have mtu and advmss fields (not in spec examples but valid fields)
+        let json = serde_json::to_string(&route).unwrap();
+        if has_mtu {
+            assert!(json.contains("\"mtu\""));
+        }
+        if has_advmss {
+            assert!(json.contains("\"advmss\""));
+        }
+
+        let deserialized: Route = serde_json::from_str(&json).unwrap();
+        assert_eq!(route, deserialized);
+    }
+
+    #[rstest]
+    #[case(
+        r#"{
+  "cniVersion": "1.0.0",
+  "name": "test",
+  "type": "bridge",
+  "ipMasq": true
+}"#,
+        Some(true)
+    )]
+    #[case(
+        r#"{
+  "cniVersion": "1.0.0",
+  "name": "test",
+  "type": "bridge",
+  "ipMasq": false
+}"#,
+        Some(false)
+    )]
+    #[case(
+        r#"{
+  "cniVersion": "1.0.0",
+  "name": "test",
+  "type": "bridge"
+}"#,
+        None
+    )]
+    fn test_net_conf_with_ip_masq(#[case] input: &str, #[case] expected: Option<bool>) {
+        // ipMasq is a well-known optional field
+        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#plugin-configuration-objects
+        let conf: NetConf = serde_json::from_str(input).unwrap();
+        assert_eq!(conf.ip_masq, expected);
+
+        let json = serde_json::to_string(&conf).unwrap();
+        if expected.is_some() {
+            assert!(json.contains("ipMasq"));
+        } else {
+            assert!(!json.contains("ipMasq"));
+        }
+    }
+
+    #[rstest]
+    #[case(
+        Dns {
+            nameservers: vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()],
+            domain: Some("example.com".to_string()),
+            search: Some(vec![
+                "example.com".to_string(),
+                "corp.example.com".to_string(),
+            ]),
+            options: Some(vec!["ndots:5".to_string(), "timeout:1".to_string()]),
+        },
+        true,
+        true,
+        true
+    )]
+    #[case(
+        Dns {
+            nameservers: vec!["1.1.1.1".to_string()],
+            domain: None,
+            search: None,
+            options: None,
+        },
+        false,
+        false,
+        false
+    )]
+    #[case(
+        Dns {
+            nameservers: vec!["10.0.0.1".to_string()],
+            domain: Some("local".to_string()),
+            search: None,
+            options: Some(vec!["ndots:1".to_string()]),
+        },
+        true,
+        false,
+        true
+    )]
+    fn test_dns_all_fields(
+        #[case] dns: Dns,
+        #[case] has_domain: bool,
+        #[case] has_search: bool,
+        #[case] has_options: bool,
+    ) {
+        // Test DNS with all optional fields populated
+        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#plugin-configuration-objects
+        let json = serde_json::to_string(&dns).unwrap();
+        let deserialized: Dns = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.nameservers, dns.nameservers);
+        assert_eq!(deserialized.domain, dns.domain);
+        assert_eq!(deserialized.search, dns.search);
+        assert_eq!(deserialized.options, dns.options);
+
+        assert_eq!(deserialized.domain.is_some(), has_domain);
+        assert_eq!(deserialized.search.is_some(), has_search);
+        assert_eq!(deserialized.options.is_some(), has_options);
     }
 }

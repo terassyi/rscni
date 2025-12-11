@@ -16,6 +16,7 @@ use thiserror::Error;
 /// Each variant corresponds to a specific error code and includes a detail message.
 /// When returned from a CNI plugin, these errors are automatically formatted as
 /// JSON error responses according to the CNI spec.
+/// https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error
 ///
 /// # CNI Error Codes
 ///
@@ -158,5 +159,90 @@ impl From<&Error> for u32 {
             Error::TryAgainLater(_) => 11,
             Error::Custom(code, _, _) => *code,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::Error;
+    use crate::types::ErrorResult;
+
+    #[rstest]
+    #[case(Error::IncompatibleVersion("test".to_string()), 1)]
+    #[case(Error::UnsupportedNetworkConfiguration("test".to_string()), 2)]
+    #[case(Error::NotExist("test".to_string()), 3)]
+    #[case(Error::InvalidEnvValue("test".to_string()), 4)]
+    #[case(Error::IOFailure("test".to_string()), 5)]
+    #[case(Error::FailedToDecode("test".to_string()), 6)]
+    #[case(Error::InvalidNetworkConfig("test".to_string()), 7)]
+    #[case(Error::TryAgainLater("test".to_string()), 11)]
+    #[case(Error::Custom(100, "msg".to_string(), "details".to_string()), 100)]
+    #[case(Error::Custom(255, "msg".to_string(), "details".to_string()), 255)]
+    fn test_error_code_conversion(#[case] error: Error, #[case] expected_code: u32) {
+        assert_eq!(u32::from(&error), expected_code);
+    }
+
+    #[rstest]
+    #[case(1, "version not supported", Error::IncompatibleVersion("version not supported".to_string()))]
+    #[case(2, "field xyz", Error::UnsupportedNetworkConfiguration("field xyz".to_string()))]
+    #[case(3, "container not found", Error::NotExist("container not found".to_string()))]
+    #[case(4, "CNI_COMMAND not set", Error::InvalidEnvValue("CNI_COMMAND not set".to_string()))]
+    #[case(5, "failed to read", Error::IOFailure("failed to read".to_string()))]
+    #[case(6, "invalid JSON", Error::FailedToDecode("invalid JSON".to_string()))]
+    #[case(7, "missing field", Error::InvalidNetworkConfig("missing field".to_string()))]
+    #[case(11, "resource busy", Error::TryAgainLater("resource busy".to_string()))]
+    fn test_error_result_to_error_conversion_standard(
+        #[case] code: u32,
+        #[case] details: &str,
+        #[case] expected: Error,
+    ) {
+        let error_result = ErrorResult {
+            cni_version: "1.1.0".to_string(),
+            code,
+            msg: "Test message".to_string(),
+            details: details.to_string(),
+        };
+        let error = Error::from(&error_result);
+        assert_eq!(error.details(), expected.details());
+        assert_eq!(u32::from(&error), u32::from(&expected));
+    }
+
+    #[rstest]
+    #[case(101, "Custom error", "custom details")]
+    #[case(200, "Another custom", "more details")]
+    fn test_error_result_to_error_conversion_custom(
+        #[case] code: u32,
+        #[case] msg: &str,
+        #[case] details: &str,
+    ) {
+        let error_result = ErrorResult {
+            cni_version: "1.1.0".to_string(),
+            code,
+            msg: msg.to_string(),
+            details: details.to_string(),
+        };
+        let error = Error::from(&error_result);
+        if let Error::Custom(result_code, result_msg, result_details) = error {
+            assert_eq!(result_code, code);
+            assert_eq!(result_msg, msg);
+            assert_eq!(result_details, details);
+        } else {
+            panic!("Expected Custom error, got: {error:?}");
+        }
+    }
+
+    #[test]
+    fn test_error_result_to_error_conversion_unknown() {
+        let error_result = ErrorResult {
+            cni_version: "1.1.0".to_string(),
+            code: 99,
+            msg: "Unknown".to_string(),
+            details: "unknown code".to_string(),
+        };
+        let error = Error::from(&error_result);
+        assert!(matches!(error, Error::FailedToDecode(_)));
+        assert!(error.details().contains("unknown error code: 99"));
     }
 }

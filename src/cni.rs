@@ -272,3 +272,230 @@ impl Plugin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Dns, Interface, IpConfig, NetConf, Route};
+    use rstest::rstest;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::io::{Cursor, Read, Write};
+    use std::str::FromStr;
+
+    // Thread-local storage for mock environment variables
+    thread_local! {
+        static MOCK_ENV: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    }
+
+    // Mock Env implementation
+    struct MockEnv;
+
+    impl Env for MockEnv {
+        fn get<T>(name: &str) -> Result<T, Error>
+        where
+            T: FromStr,
+            T::Err: std::error::Error + 'static,
+        {
+            MOCK_ENV.with(|env| {
+                env.borrow()
+                    .get(name)
+                    .ok_or_else(|| Error::InvalidEnvValue(format!("env var not found: {}", name)))
+                    .and_then(|v| {
+                        v.parse::<T>()
+                            .map_err(|e| Error::InvalidEnvValue(e.to_string()))
+                    })
+            })
+        }
+    }
+
+    // Thread-local storage for mock I/O
+    thread_local! {
+        static MOCK_INPUT: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+    }
+
+    struct MockIo;
+
+    impl Io for MockIo {
+        fn io_in() -> impl Read {
+            MOCK_INPUT.with(|input| {
+                let data = input.borrow().clone();
+                Cursor::new(data)
+            })
+        }
+
+        fn io_out() -> impl Write {
+            Vec::new()
+        }
+
+        fn io_err() -> impl Write {
+            Vec::new()
+        }
+    }
+
+    // Helper function to set mock environment variable
+    fn set_mock_env(key: &str, value: &str) {
+        MOCK_ENV.with(|env| {
+            env.borrow_mut()
+                .insert(key.to_string(), value.to_string());
+        });
+    }
+
+    // Helper function to set mock input
+    fn set_mock_input(data: &str) {
+        MOCK_INPUT.with(|input| {
+            *input.borrow_mut() = data.as_bytes().to_vec();
+        });
+    }
+
+    // Helper function to clear mock environment
+    fn clear_mock_env() {
+        MOCK_ENV.with(|env| {
+            env.borrow_mut().clear();
+        });
+    }
+
+    // Helper function to clear mock input
+    fn clear_mock_input() {
+        MOCK_INPUT.with(|input| {
+            input.borrow_mut().clear();
+        });
+    }
+
+    // Mock Cni implementation
+    struct MockCni;
+
+    impl Cni for MockCni {
+        fn add(&self, _args: Args) -> Result<CNIResult, Error> {
+            Ok(CNIResult {
+                interfaces: vec![Interface {
+                    name: "eth0".to_string(),
+                    mac: "00:11:22:33:44:55".to_string(),
+                    sandbox: Some("/var/run/netns/test".to_string()),
+                }],
+                ips: vec![IpConfig {
+                    interface: Some(0),
+                    address: "10.1.0.5/16".to_string(),
+                    gateway: Some("10.1.0.1".to_string()),
+                }],
+                routes: vec![Route {
+                    dst: "0.0.0.0/0".to_string(),
+                    gw: Some("10.1.0.1".to_string()),
+                    mtu: None,
+                    advmss: None,
+                }],
+                dns: Some(Dns {
+                    nameservers: vec!["10.1.0.1".to_string()],
+                    domain: None,
+                    search: None,
+                    options: None,
+                }),
+            })
+        }
+
+        fn del(&self, _args: Args) -> Result<CNIResult, Error> {
+            Ok(CNIResult::default())
+        }
+
+        fn check(&self, _args: Args) -> Result<CNIResult, Error> {
+            Ok(CNIResult::default())
+        }
+    }
+
+    #[rstest]
+    #[case("ADD")]
+    #[case("DEL")]
+    #[case("CHECK")]
+    fn test_plugin_inner_run_commands(#[case] command: &str) {
+        clear_mock_env();
+        clear_mock_input();
+
+        set_mock_env("CNI_COMMAND", command);
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+        set_mock_env("CNI_ARGS", "");
+
+        let config = NetConf {
+            cni_version: "1.0.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config).unwrap());
+
+        let plugin = Plugin::default();
+        let mock_cni = MockCni;
+
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni);
+        assert!(result.is_ok(), "Command {} should succeed", command);
+
+        let json_output = result.unwrap();
+        assert!(!json_output.is_empty());
+    }
+
+    #[test]
+    fn test_plugin_inner_run_version() {
+        clear_mock_env();
+        set_mock_env("CNI_COMMAND", "VERSION");
+
+        let plugin = Plugin::default();
+        let mock_cni = MockCni;
+
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni);
+        assert!(result.is_ok());
+
+        let json_output = result.unwrap();
+        assert!(json_output.contains("cniVersion"));
+        assert!(json_output.contains("supportedVersions"));
+    }
+
+    #[test]
+    fn test_plugin_inner_run_unset() {
+        clear_mock_env();
+        set_mock_env("CNI_COMMAND", "");
+
+        let plugin = Plugin::default().msg("Test Plugin v1.0.0");
+        let mock_cni = MockCni;
+
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(output.contains("Test Plugin v1.0.0"));
+    }
+
+    #[test]
+    fn test_plugin_inner_run_version_mismatch() {
+        clear_mock_env();
+        clear_mock_input();
+
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+        set_mock_env("CNI_ARGS", "");
+
+        // Plugin supports 1.0.0, but config specifies 0.4.0
+        let config = NetConf {
+            cni_version: "0.4.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config).unwrap());
+
+        let plugin = Plugin::new("1.0.0", vec!["1.0.0".to_string()]);
+        let mock_cni = MockCni;
+
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni);
+        assert!(result.is_err());
+        if let Err(Error::IncompatibleVersion(_)) = result {
+            // Expected error
+        } else {
+            panic!("Expected IncompatibleVersion error");
+        }
+    }
+}
