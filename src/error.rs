@@ -1,56 +1,127 @@
+//! CNI error types and error handling.
+//!
+//! This module defines the error types used throughout the library, following the
+//! [CNI specification error format](https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error).
+//!
+//! # Error Handling in CNI Plugins
+//!
+//! CNI plugins should return appropriate error types to help the container runtime
+//! understand what went wrong and how to handle it.
+//!
+
 use thiserror::Error;
 
-/// Error represents CNI error result structure.
-/// String value each variants have is for details in CNI errors.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error> for details.
+/// CNI error types as defined by the CNI specification.
+///
+/// Each variant corresponds to a specific error code and includes a detail message.
+/// When returned from a CNI plugin, these errors are automatically formatted as
+/// JSON error responses according to the CNI spec.
+/// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error>
+///
+/// # CNI Error Codes
+///
+/// - 1: Incompatible CNI version
+/// - 2: Unsupported network configuration field
+/// - 3: Container does not exist
+/// - 4: Invalid environment variable
+/// - 5: I/O failure
+/// - 6: Failed to decode/parse data
+/// - 7: Invalid network configuration
+/// - 11: Try again later
+/// - 100+: Custom plugin-specific errors
+///
 #[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Incompatible CNI version
+    /// Incompatible CNI version (Error code: 1)
+    ///
+    /// Returned when the CNI version requested by the runtime is not supported
+    /// by the plugin. The detail message should specify which version was requested.
     IncompatibleVersion(String),
-    /// Unsupported field in network configuration.
-    /// This error message must contain the key and value of the unsupported field.
+
+    /// Unsupported field in network configuration (Error code: 2)
+    ///
+    /// Returned when the network configuration contains a field that the plugin
+    /// does not support. The detail message should specify the unsupported field name and value.
     UnsupportedNetworkConfiguration(String),
-    /// Container unknown or does not exist.
-    /// This errors implies the runtime does not need to perform any container network cleanup.
+
+    /// Container does not exist (Error code: 3)
+    ///
+    /// Returned when the container is unknown or does not exist. This implies
+    /// the runtime does not need to perform any network cleanup.
     NotExist(String),
-    /// Invalid necessary environment variables, like CNI_COMMAND, CNI_CONTAINERID, etc.
-    /// The error message must contain the names of invalid variables.
+
+    /// Invalid environment variable (Error code: 4)
+    ///
+    /// Returned when required CNI environment variables (like `CNI_COMMAND`,
+    /// `CNI_CONTAINERID`, etc.) are missing or have invalid values.
     InvalidEnvValue(String),
-    /// I/O failure.
-    /// For example, failed to read network configuration bytes from stdin.
+
+    /// I/O failure (Error code: 5)
+    ///
+    /// Returned for I/O errors such as failing to read network configuration
+    /// from stdin or write results to stdout.
     IOFailure(String),
-    /// Failed to decode content.
-    /// For example, failed to unmarshal network configurations from bytes or failed to decode version info from string.
+
+    /// Failed to decode/parse data (Error code: 6)
+    ///
+    /// Returned when failing to parse JSON configuration, unmarshal data,
+    /// or decode version information.
     FailedToDecode(String),
-    /// Invalid network configurations.
-    /// If some validations on network configurations do no pass, this error will be raised.
+
+    /// Invalid network configuration (Error code: 7)
+    ///
+    /// Returned when network configuration validation fails.
     InvalidNetworkConfig(String),
-    /// Try again later.
-    /// If the plugin detects some transient condition that should clear up,
-    /// it can use this code to notify the runtime it should re-try the operation later.
+
+    /// Try again later (Error code: 11)
+    ///
+    /// Returned when the plugin detects a transient condition that should clear up.
+    /// The runtime should retry the operation later.
     TryAgainLater(String),
-    /// Error codes 0-99 are reserved.
-    /// So values of 100+ can be freely used for use specific errors.
-    /// First value is for code.
-    /// Second one is for message of the error.
-    /// Third one is for a longer message describing the error.
+
+    /// Custom plugin-specific error (Error code: 100+)
+    ///
+    /// For plugin-specific errors with custom error codes (100+), messages,
+    /// and detailed descriptions.
+    ///
+    /// # Arguments
+    ///
+    /// * First field: Error code (must be >= 100)
+    /// * Second field: Short error message
+    /// * Third field: Detailed error description
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rscni::error::Error;
+    ///
+    /// fn custom_validation() -> Result<(), Error> {
+    ///     Err(Error::Custom(
+    ///         100,
+    ///         "Bridge creation failed".to_string(),
+    ///         "Failed to create bridge br0: device already exists".to_string(),
+    ///     ))
+    /// }
+    /// ```
     Custom(u32, String, String),
 }
 
 impl Error {
     /// Outputs details
+    #[must_use]
     pub fn details(&self) -> String {
+        #[allow(clippy::match_same_arms)]
         match self {
-            Error::IncompatibleVersion(details) => details.to_string(),
-            Error::UnsupportedNetworkConfiguration(details) => details.to_string(),
-            Error::NotExist(details) => details.to_string(),
-            Error::InvalidEnvValue(details) => details.to_string(),
-            Error::IOFailure(details) => details.to_string(),
-            Error::FailedToDecode(details) => details.to_string(),
-            Error::InvalidNetworkConfig(details) => details.to_string(),
-            Error::TryAgainLater(details) => details.to_string(),
-            Error::Custom(_, _, details) => details.to_string(),
+            Self::IncompatibleVersion(details) => details.clone(),
+            Self::UnsupportedNetworkConfiguration(details) => details.clone(),
+            Self::NotExist(details) => details.clone(),
+            Self::InvalidEnvValue(details) => details.clone(),
+            Self::IOFailure(details) => details.clone(),
+            Self::FailedToDecode(details) => details.clone(),
+            Self::InvalidNetworkConfig(details) => details.clone(),
+            Self::TryAgainLater(details) => details.clone(),
+            Self::Custom(_, _, details) => details.clone(),
         }
     }
 }
@@ -58,19 +129,19 @@ impl Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::IncompatibleVersion(_) => write!(f, "Incompatible CNI version"),
-            Error::UnsupportedNetworkConfiguration(_) => {
+            Self::IncompatibleVersion(_) => write!(f, "Incompatible CNI version"),
+            Self::UnsupportedNetworkConfiguration(_) => {
                 write!(f, "Unsupported network configuration")
             }
-            Error::NotExist(_) => write!(f, "Container does not exist"),
-            Error::InvalidEnvValue(_) => {
+            Self::NotExist(_) => write!(f, "Container does not exist"),
+            Self::InvalidEnvValue(_) => {
                 write!(f, "Invalid necessary environment variables")
             }
-            Error::IOFailure(_) => write!(f, "I/O failure"),
-            Error::FailedToDecode(_) => write!(f, "Failed to decode content"),
-            Error::InvalidNetworkConfig(_) => write!(f, "Invalid network config"),
-            Error::TryAgainLater(_) => write!(f, "Try again later"),
-            Error::Custom(_, msg, _) => write!(f, "Custom error: {msg}"),
+            Self::IOFailure(_) => write!(f, "I/O failure"),
+            Self::FailedToDecode(_) => write!(f, "Failed to decode content"),
+            Self::InvalidNetworkConfig(_) => write!(f, "Invalid network config"),
+            Self::TryAgainLater(_) => write!(f, "Try again later"),
+            Self::Custom(_, msg, _) => write!(f, "Custom error: {msg}"),
         }
     }
 }
@@ -88,5 +159,90 @@ impl From<&Error> for u32 {
             Error::TryAgainLater(_) => 11,
             Error::Custom(code, _, _) => *code,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::Error;
+    use crate::types::ErrorResult;
+
+    #[rstest]
+    #[case(Error::IncompatibleVersion("test".to_string()), 1)]
+    #[case(Error::UnsupportedNetworkConfiguration("test".to_string()), 2)]
+    #[case(Error::NotExist("test".to_string()), 3)]
+    #[case(Error::InvalidEnvValue("test".to_string()), 4)]
+    #[case(Error::IOFailure("test".to_string()), 5)]
+    #[case(Error::FailedToDecode("test".to_string()), 6)]
+    #[case(Error::InvalidNetworkConfig("test".to_string()), 7)]
+    #[case(Error::TryAgainLater("test".to_string()), 11)]
+    #[case(Error::Custom(100, "msg".to_string(), "details".to_string()), 100)]
+    #[case(Error::Custom(255, "msg".to_string(), "details".to_string()), 255)]
+    fn test_error_code_conversion(#[case] error: Error, #[case] expected_code: u32) {
+        assert_eq!(u32::from(&error), expected_code);
+    }
+
+    #[rstest]
+    #[case(1, "version not supported", Error::IncompatibleVersion("version not supported".to_string()))]
+    #[case(2, "field xyz", Error::UnsupportedNetworkConfiguration("field xyz".to_string()))]
+    #[case(3, "container not found", Error::NotExist("container not found".to_string()))]
+    #[case(4, "CNI_COMMAND not set", Error::InvalidEnvValue("CNI_COMMAND not set".to_string()))]
+    #[case(5, "failed to read", Error::IOFailure("failed to read".to_string()))]
+    #[case(6, "invalid JSON", Error::FailedToDecode("invalid JSON".to_string()))]
+    #[case(7, "missing field", Error::InvalidNetworkConfig("missing field".to_string()))]
+    #[case(11, "resource busy", Error::TryAgainLater("resource busy".to_string()))]
+    fn test_error_result_to_error_conversion_standard(
+        #[case] code: u32,
+        #[case] details: &str,
+        #[case] expected: Error,
+    ) {
+        let error_result = ErrorResult {
+            cni_version: "1.1.0".to_string(),
+            code,
+            msg: "Test message".to_string(),
+            details: details.to_string(),
+        };
+        let error = Error::from(&error_result);
+        assert_eq!(error.details(), expected.details());
+        assert_eq!(u32::from(&error), u32::from(&expected));
+    }
+
+    #[rstest]
+    #[case(101, "Custom error", "custom details")]
+    #[case(200, "Another custom", "more details")]
+    fn test_error_result_to_error_conversion_custom(
+        #[case] code: u32,
+        #[case] msg: &str,
+        #[case] details: &str,
+    ) {
+        let error_result = ErrorResult {
+            cni_version: "1.1.0".to_string(),
+            code,
+            msg: msg.to_string(),
+            details: details.to_string(),
+        };
+        let error = Error::from(&error_result);
+        if let Error::Custom(result_code, result_msg, result_details) = error {
+            assert_eq!(result_code, code);
+            assert_eq!(result_msg, msg);
+            assert_eq!(result_details, details);
+        } else {
+            panic!("Expected Custom error, got: {error:?}");
+        }
+    }
+
+    #[test]
+    fn test_error_result_to_error_conversion_unknown() {
+        let error_result = ErrorResult {
+            cni_version: "1.1.0".to_string(),
+            code: 99,
+            msg: "Unknown".to_string(),
+            details: "unknown code".to_string(),
+        };
+        let error = Error::from(&error_result);
+        assert!(matches!(error, Error::FailedToDecode(_)));
+        assert!(error.details().contains("unknown error code: 99"));
     }
 }

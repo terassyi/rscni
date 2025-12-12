@@ -1,0 +1,10 @@
+# Clippy configuration for rscni
+
+# Warn on functions with more than 7 arguments
+too-many-arguments-threshold = 7
+
+# Set the maximum cognitive complexity
+cognitive-complexity-threshold = 25
+
+# Set the maximum number of single char bindings
+single-char-binding-names-threshold = 4

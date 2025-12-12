@@ -1,7 +1,9 @@
-//! RsCNI is a CNI plugin library for Rust.
-//! RsCNI has a similar APIs to [containernetworking/cni/pkg/skel](https://pkg.go.dev/github.com/containernetworking/cni/pkg/skel).
-//! The entrypoint is `Plugin`.
-//! It accepts callback functions defined as `CmdFn` to represent CNI Add, Del and Check commands.
+//! `RsCNI` is a CNI plugin library for Rust.
+//! `RsCNI` helps you to implement CNI plugins easily by abstracting common operations.
+//! `RsCNI` offers trait based design for both sync and async CNI plugins.
+//!
+//! The entry point is the `Plugin` struct in the `cni` or `async_cni` module.
+//! Your CNI plugin struct should implement the `Cni` trait defined in the respective module.
 //!
 //! Please see [rscni-debug](github.com/terassyi/rscni/blob/main/examples/README.md) for the example implementation.
 //! To use async version of rscni, please use it with `feature=async` flag.
@@ -9,21 +11,43 @@
 //!
 //! # Quick start
 //!
-//! ```rust,no_run,ignore
-//! fn main() {
-//!     let version_info = PluginInfo::default();
-//!     let mut dispatcher = Plugin::new(add, del, check, version_info, ABOUT_MSG);
-//!
-//!     dispatcher.run().expect("Failed to complete the CNI call");
-//! }
+//! ```rust,no_run
+//! # use rscni::{
+//! #     cni::{Cni, Plugin},
+//! #     error::Error,
+//! #     types::{Args, CNIResult},
+//! # };
+//! #
+//! # struct MyPlugin;
+//! #
+//! # impl Cni for MyPlugin {
+//! #     fn add(&self, args: Args) -> Result<CNIResult, Error> {
+//! #         // Implement network setup logic
+//! #         Ok(CNIResult::default())
+//! #     }
+//! #
+//! #     fn del(&self, args: Args) -> Result<CNIResult, Error> {
+//! #         // Implement network teardown logic
+//! #         Ok(CNIResult::default())
+//! #     }
+//! #
+//! #     fn check(&self, args: Args) -> Result<CNIResult, Error> {
+//! #         // Implement network check logic
+//! #         Ok(CNIResult::default())
+//! #     }
+//! # }
+//! #
+//! let my_plugin = MyPlugin;
+//! let plugin = Plugin::default();
+//! plugin.run(&my_plugin).expect("Failed to run CNI plugin");
 //! ```
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #[cfg(any(feature = "async", doc))]
-pub mod async_skel;
-pub mod error;
+pub mod async_cni;
 #[cfg(feature = "std")]
-pub mod skel;
+pub mod cni;
+pub mod error;
 pub mod types;
 mod util;
-pub mod version;
+pub(crate) mod version;
