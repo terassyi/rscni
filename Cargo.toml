@@ -8,6 +8,14 @@ repository = "https://github.com/terassyi/rscni"
 license-file = "LICENSE"
 readme = "README.md"
 description = "CNI plugin library for Rust"
+keywords = ["cni", "container", "networking", "kubernetes"]
+categories = ["network-programming", "api-bindings"]
+homepage = "https://github.com/terassyi/rscni"
+documentation = "https://docs.rs/rscni"
+exclude = [
+  ".github/",
+  "examples/",
+]
 
 [features]
 default = ["std"]
