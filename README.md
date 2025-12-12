@@ -9,6 +9,10 @@ A Rust library for building [CNI (Container Network Interface)](https://www.cni.
 
 RsCNI provides a type-safe API for implementing CNI plugins in Rust, following the [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/spec-v1.1.0/SPEC.md).
 
+> **Breaking Changes in v0.1.0**
+>
+> The API has been completely redesigned from v0.0.4 with a new trait-based architecture.
+
 ## Features
 
 - **Idiomatic Rust**: Trait-based design with type safety and zero-cost abstractions
