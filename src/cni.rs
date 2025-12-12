@@ -44,7 +44,7 @@ use crate::{
 /// ```
 pub trait Cni {
     /// Executes the ADD command for the CNI plugin.
-    /// https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#add-add-container-to-network-or-apply-modifications
+    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#add-add-container-to-network-or-apply-modifications>
     ///
     /// This method is called when a container is created and needs network connectivity.
     /// It should set up the network interface, assign IP addresses, configure routes, etc.
@@ -65,7 +65,7 @@ pub trait Cni {
     fn add(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the DEL command for the CNI plugin.
-    /// https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications
+    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications>
     ///
     /// This method is called when a container is being deleted and should clean up
     /// all network resources that were created during the ADD operation.
@@ -84,7 +84,7 @@ pub trait Cni {
     fn del(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the CHECK command for the CNI plugin.
-    /// https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#check-check-containers-networking-is-as-expected
+    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#check-check-containers-networking-is-as-expected>
     ///
     /// This method verifies that the network configuration is still correct and matches
     /// what was configured during ADD.
@@ -115,20 +115,18 @@ pub trait Cni {
 /// # Example
 ///
 /// ```rust,no_run
-/// use rscni::{cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
-///
-/// struct MyPlugin;
-/// impl Cni for MyPlugin {
-///     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-///     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-///     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-/// }
-///
-/// fn main() {
-///     let plugin = Plugin::default().msg("MyPlugin v1.0.0");
-///     let my_plugin = MyPlugin;
-///     plugin.run(&my_plugin).expect("Failed to run plugin");
-/// }
+/// # use rscni::{cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+/// #
+/// # struct MyPlugin;
+/// # impl Cni for MyPlugin {
+/// #     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// #     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// #     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// # }
+/// #
+/// let plugin = Plugin::default().msg("MyPlugin v1.0.0");
+/// let my_plugin = MyPlugin;
+/// plugin.run(&my_plugin).expect("Failed to run plugin");
 /// ```
 #[derive(Debug, Default)]
 pub struct Plugin {
@@ -187,7 +185,7 @@ impl Plugin {
     /// Runs the CNI plugin by processing the CNI command and executing the appropriate operation.
     ///
     /// This method:
-    /// 1. Reads the CNI_COMMAND environment variable
+    /// 1. Reads the `CNI_COMMAND` environment variable
     /// 2. Routes to ADD/DEL/CHECK/VERSION based on the command
     /// 3. Calls the appropriate method on your `Cni` implementation
     /// 4. Writes the result to stdout in JSON format
@@ -212,23 +210,21 @@ impl Plugin {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rscni::{cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+    /// # use rscni::{cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+    /// #
+    /// # struct MyPlugin;
+    /// # impl Cni for MyPlugin {
+    /// #     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// # }
+    /// #
+    /// let plugin = Plugin::default();
+    /// let my_plugin = MyPlugin;
     ///
-    /// struct MyPlugin;
-    /// impl Cni for MyPlugin {
-    ///     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-    ///     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-    ///     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-    /// }
-    ///
-    /// fn main() {
-    ///     let plugin = Plugin::default();
-    ///     let my_plugin = MyPlugin;
-    ///
-    ///     if let Err(e) = plugin.run(&my_plugin) {
-    ///         eprintln!("CNI plugin failed: {}", e);
-    ///         std::process::exit(1);
-    ///     }
+    /// if let Err(e) = plugin.run(&my_plugin) {
+    ///     eprintln!("CNI plugin failed: {}", e);
+    ///     std::process::exit(1);
     /// }
     /// ```
     pub fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
@@ -336,8 +332,7 @@ mod tests {
     // Helper function to set mock environment variable
     fn set_mock_env(key: &str, value: &str) {
         MOCK_ENV.with(|env| {
-            env.borrow_mut()
-                .insert(key.to_string(), value.to_string());
+            env.borrow_mut().insert(key.to_string(), value.to_string());
         });
     }
 

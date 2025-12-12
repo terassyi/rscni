@@ -12,36 +12,34 @@
 //! # Quick start
 //!
 //! ```rust,no_run
-//! use rscni::{
-//!     cni::{Cni, Plugin},
-//!     error::Error,
-//!     types::{Args, CNIResult},
-//! };
-//!
-//! struct MyPlugin;
-//!
-//! impl Cni for MyPlugin {
-//!     fn add(&self, args: Args) -> Result<CNIResult, Error> {
-//!         // Implement network setup logic
-//!         Ok(CNIResult::default())
-//!     }
-//!
-//!     fn del(&self, args: Args) -> Result<CNIResult, Error> {
-//!         // Implement network teardown logic
-//!         Ok(CNIResult::default())
-//!     }
-//!
-//!     fn check(&self, args: Args) -> Result<CNIResult, Error> {
-//!         // Implement network check logic
-//!         Ok(CNIResult::default())
-//!     }
-//! }
-//!
-//! fn main() {
-//!     let my_plugin = MyPlugin;
-//!     let plugin = Plugin::default();
-//!     plugin.run(&my_plugin).expect("Failed to run CNI plugin");
-//! }
+//! # use rscni::{
+//! #     cni::{Cni, Plugin},
+//! #     error::Error,
+//! #     types::{Args, CNIResult},
+//! # };
+//! #
+//! # struct MyPlugin;
+//! #
+//! # impl Cni for MyPlugin {
+//! #     fn add(&self, args: Args) -> Result<CNIResult, Error> {
+//! #         // Implement network setup logic
+//! #         Ok(CNIResult::default())
+//! #     }
+//! #
+//! #     fn del(&self, args: Args) -> Result<CNIResult, Error> {
+//! #         // Implement network teardown logic
+//! #         Ok(CNIResult::default())
+//! #     }
+//! #
+//! #     fn check(&self, args: Args) -> Result<CNIResult, Error> {
+//! #         // Implement network check logic
+//! #         Ok(CNIResult::default())
+//! #     }
+//! # }
+//! #
+//! let my_plugin = MyPlugin;
+//! let plugin = Plugin::default();
+//! plugin.run(&my_plugin).expect("Failed to run CNI plugin");
 //! ```
 
 #![cfg_attr(docsrs, feature(doc_cfg))]

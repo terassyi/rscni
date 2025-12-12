@@ -85,7 +85,7 @@ pub struct Args {
     /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
     pub container_id: String,
     /// A reference to the container's "isolation domain".
-    /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/[nsname]).
+    /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
     pub netns: Option<PathBuf>,
     /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
     pub ifname: String,
@@ -1707,7 +1707,10 @@ mod tests {
   }
 }"#,
         "1.0.0",
-        1, 1, 1, true
+        1,
+        1,
+        1,
+        true
     )]
     #[case(
         r#"{
@@ -1717,7 +1720,10 @@ mod tests {
   "routes": []
 }"#,
         "1.1.0",
-        0, 0, 0, false
+        0,
+        0,
+        0,
+        false
     )]
     fn test_cni_result_with_cni_version(
         #[case] input: &str,

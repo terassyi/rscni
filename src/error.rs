@@ -16,7 +16,7 @@ use thiserror::Error;
 /// Each variant corresponds to a specific error code and includes a detail message.
 /// When returned from a CNI plugin, these errors are automatically formatted as
 /// JSON error responses according to the CNI spec.
-/// https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error
+/// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error>
 ///
 /// # CNI Error Codes
 ///
