@@ -1,0 +1,79 @@
+name: Publish to crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.1.0)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Dry-run mode (test without publishing)'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify version
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if [ "${{ inputs.version }}" != "$CARGO_VERSION" ]; then
+            echo "Error: Input version (${{ inputs.version }}) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "Version check passed: ${{ inputs.version }}"
+
+      - name: Verify tag exists
+        run: |
+          if ! git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag v${{ inputs.version }} does not exist"
+            exit 1
+          fi
+          echo "Tag v${{ inputs.version }} exists"
+
+      - name: Run tests
+        run: |
+          cargo test --lib
+          cargo test --lib --features async
+          cargo test --doc
+
+      - name: Publish to crates.io
+        run: |
+          if [ "${{ inputs.dry-run }}" == "true" ]; then
+            echo "🔍 Running in dry-run mode..."
+            cargo publish --dry-run
+            echo "✅ Dry-run completed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "📦 Publishing to crates.io..."
+            cargo publish --token ${{ secrets.CRATES_TOKEN }}
+            echo "✅ Published to crates.io" >> $GITHUB_STEP_SUMMARY
+          fi
+        env:
+          CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+
+      - name: Summary
+        run: |
+          if [ "${{ inputs.dry-run }}" == "true" ]; then
+            echo "🔍 Dry-run completed for rscni v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No changes were made to crates.io. To publish, run the workflow again with dry-run disabled." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Successfully published rscni v${{ inputs.version }} to crates.io" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- crates.io: https://crates.io/crates/rscni/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "- docs.rs: https://docs.rs/rscni/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
