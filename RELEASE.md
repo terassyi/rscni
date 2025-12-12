@@ -33,8 +33,8 @@ cargo clippy --all-features -- -D warnings
 
 ```bash
 VERSION=x.y.z
-git switch -c "bump-${VERSION}"
-git commit -a -s -m "bump version to v${VERSION}"
+git switch -c bump-$VERSION
+git commit -a -s -m "bump version to v$VERSION"
 gh pr create --fill
 ```
 
