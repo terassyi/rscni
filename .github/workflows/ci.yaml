@@ -62,3 +62,9 @@ jobs:
         run: cargo test --lib --features async
       - name: Test rscni documents
         run: cargo test --doc
+      - name: Build debug plugins
+        run: |
+          cargo build --package rscni-debug
+          cargo build --package async-rscni-debug
+      - name: Test plugin integration
+        run: cargo test --test plugin_integration_test
