@@ -14,7 +14,7 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    types::{Args, CNIResult, Cmd},
+    types::{Args, ArgsBuilder, CNIResult, Cmd},
     util::{Env, Io, OsEnv, StdIo},
     version::PluginInfo,
 };
@@ -240,17 +240,41 @@ impl Plugin {
 
         match cmd {
             Cmd::Add => {
-                let args = Args::build::<E, I>()?;
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
                 let res = cni.add(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Del => {
-                let args = Args::build::<E, I>()?;
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
                 let res = cni.del(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Check => {
-                let args = Args::build::<E, I>()?;
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
                 let res = cni.check(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }

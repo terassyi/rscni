@@ -84,18 +84,19 @@ async fn add(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Add";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args.config.ok_or(Error::InvalidNetworkConfig(
-        "cniOutput must be given".to_string(),
-    ))?;
+    let net_conf = args
+        .config()
+        .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let mut file = debug_conf.open_file(&args.container_id, cmd).await?;
+    let container_id = args.container_id().unwrap_or("unknown");
+    let mut file = debug_conf.open_file(container_id, cmd).await?;
     file.write(cni_output.as_bytes())
         .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-    Ok(match net_conf.prev_result {
-        Some(prev) => prev,
+    Ok(match &net_conf.prev_result {
+        Some(prev) => prev.clone(),
         None => CNIResult::default(),
     })
 }
@@ -104,18 +105,19 @@ async fn del(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Del";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args.config.ok_or(Error::InvalidNetworkConfig(
-        "cniOutput must be given".to_string(),
-    ))?;
+    let net_conf = args
+        .config()
+        .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let mut file = debug_conf.open_file(&args.container_id, cmd).await?;
+    let container_id = args.container_id().unwrap_or("unknown");
+    let mut file = debug_conf.open_file(container_id, cmd).await?;
     file.write(cni_output.as_bytes())
         .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-    Ok(match net_conf.prev_result {
-        Some(prev) => prev,
+    Ok(match &net_conf.prev_result {
+        Some(prev) => prev.clone(),
         None => CNIResult::default(),
     })
 }
@@ -124,24 +126,25 @@ async fn check(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Check";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args.config.ok_or(Error::InvalidNetworkConfig(
-        "cniOutput must be given".to_string(),
-    ))?;
+    let net_conf = args
+        .config()
+        .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let mut file = debug_conf.open_file(&args.container_id, cmd).await?;
+    let container_id = args.container_id().unwrap_or("unknown");
+    let mut file = debug_conf.open_file(container_id, cmd).await?;
     file.write(cni_output.as_bytes())
         .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-    Ok(match net_conf.prev_result {
-        Some(prev) => prev,
+    Ok(match &net_conf.prev_result {
+        Some(prev) => prev.clone(),
         None => CNIResult::default(),
     })
 }
 
 fn output_args(cmd: &str, args: &Args) -> Result<String, Error> {
-    let stdin_data = match &args.config {
+    let stdin_data = match args.config() {
         Some(conf) => {
             serde_json::to_string(&conf).map_err(|e| Error::FailedToDecode(e.to_string()))?
         }
@@ -157,7 +160,13 @@ CNI_ARGS: {:?},
 STDIN_DATA: {}
 --------------------
 "#,
-        cmd, args.container_id, args.ifname, args.netns, args.path, args.args, stdin_data,
+        cmd,
+        args.container_id().unwrap_or("<none>"),
+        args.ifname().unwrap_or("<none>"),
+        args.netns(),
+        args.path(),
+        args.args(),
+        stdin_data,
     );
     Ok(out)
 }

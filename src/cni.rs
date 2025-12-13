@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::{
     error::Error,
-    types::{Args, CNIResult, Cmd},
+    types::{Args, ArgsBuilder, CNIResult, Cmd},
     util::{Env, Io, OsEnv, StdIo},
     version::PluginInfo,
 };
@@ -240,24 +240,48 @@ impl Plugin {
 
         match cmd {
             Cmd::Add => {
-                let args = Args::build::<E, I>()?;
-                if let Some(conf) = &args.config {
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
                     self.info.validate(&conf.cni_version)?;
                 }
                 let res = cni.add(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Del => {
-                let args = Args::build::<E, I>()?;
-                if let Some(conf) = &args.config {
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
                     self.info.validate(&conf.cni_version)?;
                 }
                 let res = cni.del(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Check => {
-                let args = Args::build::<E, I>()?;
-                if let Some(conf) = &args.config {
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
                     self.info.validate(&conf.cni_version)?;
                 }
                 let res = cni.check(args)?;

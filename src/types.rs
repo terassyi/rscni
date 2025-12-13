@@ -83,52 +83,224 @@ pub struct Args {
     /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
     /// Must not be empty.
     /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
-    pub container_id: String,
+    container_id: Option<String>,
     /// A reference to the container's "isolation domain".
     /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
-    pub netns: Option<PathBuf>,
+    netns: Option<PathBuf>,
     /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    pub ifname: String,
+    ifname: Option<String>,
     /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
-    pub args: Option<String>,
+    #[allow(clippy::struct_field_names)]
+    args: Option<String>,
     /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
-    pub path: Vec<PathBuf>,
+    path: Vec<PathBuf>,
     /// Please see [`NetConf`].
-    pub config: Option<NetConf>,
+    config: Option<NetConf>,
 }
 
 impl Args {
-    pub(crate) fn build<E: Env, I: Io>() -> Result<Self, Error> {
-        // let cmd = Cmd::from_str(&E::get::<String>(CNI_COMMAND)?)?;
-        let container_id = E::get(CNI_CONTAINERID)?;
-        let ifname = E::get(CNI_IFNAME)?;
-        let netns = PathBuf::from_str(&E::get::<String>(CNI_NETNS)?)
-            .map_err(|e| Error::InvalidEnvValue(e.to_string()))?;
-        let path: Vec<PathBuf> = E::get::<String>(CNI_PATH)?
-            .split(':')
-            .map(PathBuf::from)
-            .collect();
-        let args = match E::get::<String>(CNI_ARGS)? {
-            v if v.is_empty() => None,
-            v => Some(v),
-        };
+    /// Returns the container ID if present.
+    #[must_use]
+    pub fn container_id(&self) -> Option<&str> {
+        self.container_id.as_deref()
+    }
 
+    /// Returns the network namespace path if present.
+    #[must_use]
+    pub const fn netns(&self) -> Option<&PathBuf> {
+        self.netns.as_ref()
+    }
+
+    /// Returns the interface name if present.
+    #[must_use]
+    pub fn ifname(&self) -> Option<&str> {
+        self.ifname.as_deref()
+    }
+
+    /// Returns the extra arguments if present.
+    #[must_use]
+    pub fn args(&self) -> Option<&str> {
+        self.args.as_deref()
+    }
+
+    /// Returns the list of CNI plugin paths.
+    #[must_use]
+    pub fn path(&self) -> &[PathBuf] {
+        &self.path
+    }
+
+    /// Returns the network configuration if present.
+    #[must_use]
+    pub const fn config(&self) -> Option<&NetConf> {
+        self.config.as_ref()
+    }
+}
+
+/// Builder for constructing `Args` instances.
+#[derive(Debug)]
+pub struct ArgsBuilder<E: Env, I: Io> {
+    container_id: Option<String>,
+    netns: Option<PathBuf>,
+    ifname: Option<String>,
+    #[allow(clippy::struct_field_names)]
+    args: Option<String>,
+    path: Vec<PathBuf>,
+    config: Option<NetConf>,
+    _phantom_e: std::marker::PhantomData<E>,
+    _phantom_i: std::marker::PhantomData<I>,
+}
+
+impl<E: Env, I: Io> ArgsBuilder<E, I> {
+    /// Creates a new `ArgsBuilder`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            container_id: None,
+            netns: None,
+            ifname: None,
+            args: None,
+            path: Vec::new(),
+            config: None,
+            _phantom_e: std::marker::PhantomData,
+            _phantom_i: std::marker::PhantomData,
+        }
+    }
+
+    /// Reads container ID from the `CNI_CONTAINERID` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn container_id(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_CONTAINERID) {
+            Ok(val) => self.container_id = Some(val),
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads network namespace from the `CNI_NETNS` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn netns(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_NETNS) {
+            Ok(val) => {
+                self.netns = PathBuf::from_str(&val)
+                    .map_err(|e| Error::FailedToDecode(e.to_string()))
+                    .ok();
+            }
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads interface name from the `CNI_IFNAME` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn ifname(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_IFNAME) {
+            Ok(val) => self.ifname = Some(val),
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads extra arguments from the `CNI_ARGS` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn args(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_ARGS) {
+            Ok(val) => self.args = if val.is_empty() { None } else { Some(val) },
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads CNI plugin paths from the `CNI_PATH` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn path(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_PATH) {
+            Ok(val) => self.path = val.split(':').map(PathBuf::from).collect(),
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads network configuration from stdin.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Failed to read from stdin
+    /// - Failed to parse JSON configuration
+    pub fn config(mut self) -> Result<Self, Error> {
         let mut buf = String::new();
         I::io_in()
             .read_to_string(&mut buf)
             .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-        let config: NetConf =
+        self.config =
             serde_json::from_str(&buf).map_err(|e| Error::FailedToDecode(e.to_string()))?;
+        Ok(self)
+    }
 
-        Ok(Self {
-            container_id,
-            netns: Some(netns),
-            ifname,
-            args,
-            path,
-            config: Some(config),
+    /// Validates required fields based on the CNI command.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required fields are missing for the given command:
+    /// - `ADD`/`DEL`/`CHECK` commands require `container_id` and `ifname`
+    pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
+        match cmd {
+            Cmd::Add | Cmd::Del | Cmd::Check => {
+                // These commands require container_id and ifname
+                if self.container_id.is_none() {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_CONTAINERID is required for ADD/DEL/CHECK commands".to_string(),
+                    ));
+                }
+                if self.ifname.is_none() {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_IFNAME is required for ADD/DEL/CHECK commands".to_string(),
+                    ));
+                }
+            }
+            Cmd::Version | Cmd::UnSet => {
+                // These commands don't require container-specific parameters
+            }
+        }
+        Ok(self)
+    }
+
+    /// Builds the `Args` instance.
+    ///
+    /// # Errors
+    ///
+    /// This function currently always returns `Ok`, but returns `Result` for API consistency.
+    pub fn build(self) -> Result<Args, Error> {
+        Ok(Args {
+            container_id: self.container_id,
+            netns: self.netns,
+            ifname: self.ifname,
+            args: self.args,
+            path: self.path,
+            config: self.config,
         })
+    }
+}
+
+impl<E: Env, I: Io> Default for ArgsBuilder<E, I> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
