@@ -34,6 +34,7 @@ pub(crate) enum Cmd {
     Add,
     Del,
     Check,
+    Status,
     Version,
     /// Unset state when `CNI_COMMAND` is not set.
     UnSet,
@@ -47,6 +48,7 @@ impl FromStr for Cmd {
             "ADD" => Ok(Self::Add),
             "DEL" => Ok(Self::Del),
             "CHECK" => Ok(Self::Check),
+            "STATUS" => Ok(Self::Status),
             "VERSION" => Ok(Self::Version),
             "" => Ok(Self::UnSet),
             _ => Err(Error::InvalidEnvValue(format!("unknown CNI_COMMAND: {s}"))),
@@ -60,6 +62,7 @@ impl From<Cmd> for &str {
             Cmd::Add => "ADD",
             Cmd::Del => "DEL",
             Cmd::Check => "CHECK",
+            Cmd::Status => "STATUS",
             Cmd::Version => "VERSION",
             Cmd::UnSet => "",
         }
@@ -274,7 +277,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
                     ));
                 }
             }
-            Cmd::Version | Cmd::UnSet => {
+            Cmd::Status | Cmd::Version | Cmd::UnSet => {
                 // These commands don't require container-specific parameters
             }
         }
@@ -525,6 +528,8 @@ impl From<&ErrorResult> for Error {
             6 => Self::FailedToDecode(res.details.clone()),
             7 => Self::InvalidNetworkConfig(res.details.clone()),
             11 => Self::TryAgainLater(res.details.clone()),
+            50 => Self::PluginNotAvailable(res.details.clone()),
+            51 => Self::PluginNotAvailableLimitedConnectivity(res.details.clone()),
             _ => Self::FailedToDecode(format!("unknown error code: {}", res.code)),
         }
     }
@@ -548,6 +553,7 @@ mod tests {
     #[case("ADD", Cmd::Add)]
     #[case("DEL", Cmd::Del)]
     #[case("CHECK", Cmd::Check)]
+    #[case("STATUS", Cmd::Status)]
     #[case("VERSION", Cmd::Version)]
     #[case("", Cmd::UnSet)]
     fn test_cmd_from_str(#[case] input: &str, #[case] expected: Cmd) {

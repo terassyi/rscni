@@ -43,6 +43,10 @@ impl Cni for DebugConf {
     fn check(&self, args: Args) -> Result<CNIResult, Error> {
         check(args)
     }
+
+    fn status(&self, _args: Args) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl DebugConf {

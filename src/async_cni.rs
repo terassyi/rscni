@@ -22,13 +22,14 @@ use crate::{
 /// The core trait for implementing an async CNI plugin.
 ///
 /// Implement this trait to define the behavior of your CNI plugin for the
-/// ADD, DEL, and CHECK operations as specified by the CNI specification.
+/// ADD, DEL, CHECK, and STATUS operations as specified by the CNI specification.
 ///
 /// # CNI Operations
 ///
 /// - **ADD**: Called when a container is created. Set up the network interface.
 /// - **DEL**: Called when a container is deleted. Clean up the network interface.
 /// - **CHECK**: Called to verify that the network configuration is as expected.
+/// - **STATUS**: Called to check if the plugin is ready to service ADD requests.
 ///
 /// # Example
 ///
@@ -53,6 +54,11 @@ use crate::{
 ///     async fn check(&self, args: Args) -> Result<CNIResult, Error> {
 ///         // Network verification logic
 ///         Ok(CNIResult::default())
+///     }
+///
+///     async fn status(&self, _args: Args) -> Result<(), Error> {
+///         // Plugin readiness check
+///         Ok(())
 ///     }
 /// }
 /// ```
@@ -116,6 +122,30 @@ pub trait Cni {
     ///
     /// Returns an error if the CHECK operation fails.
     async fn check(&self, args: Args) -> Result<CNIResult, Error>;
+
+    /// Executes the STATUS command for the CNI plugin.
+    /// <https://www.cni.dev/docs/spec/#status-check-plugin-status>
+    ///
+    /// This method checks if the plugin is ready to service ADD requests.
+    /// A plugin must return success (exit with zero) if it is ready.
+    /// If the plugin knows that it cannot service ADD requests, it must return an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Contains CNI parameters. For STATUS, only `path` and `config` are typically used.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the plugin is ready to service ADD requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the plugin is not available:
+    /// - [`Error::PluginNotAvailable`](../error/enum.Error.html#variant.PluginNotAvailable) (code 50):
+    ///   The plugin cannot service ADD requests.
+    /// - [`Error::PluginNotAvailableLimitedConnectivity`](../error/enum.Error.html#variant.PluginNotAvailableLimitedConnectivity) (code 51):
+    ///   The plugin cannot service ADD requests, and existing containers may have limited connectivity.
+    async fn status(&self, args: Args) -> Result<(), Error>;
 }
 
 /// Entry point for async CNI plugins.
@@ -278,6 +308,20 @@ impl Plugin {
                 let res = cni.check(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
+            Cmd::Status => {
+                // STATUS command only requires CNI_PATH (optional) and config from stdin
+                let args = ArgsBuilder::<E, I>::new()
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                cni.status(args).await?;
+                // STATUS returns no output on success
+                Ok(String::new())
+            }
             Cmd::Version => self.info.version(),
             Cmd::UnSet => Ok(self.info.about(self.msg.clone())),
         }
@@ -410,6 +454,10 @@ mod tests {
 
         async fn check(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult::default())
+        }
+
+        async fn status(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
         }
     }
 
