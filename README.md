@@ -7,7 +7,7 @@ A Rust library for building [CNI (Container Network Interface)](https://www.cni.
 ![CI](https://github.com/terassyi/rscni/workflows/CI/badge.svg)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-RsCNI provides a type-safe API for implementing CNI plugins in Rust, following the [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/spec-v1.1.0/SPEC.md).
+RsCNI provides a type-safe API for implementing CNI plugins in Rust, following the [CNI specification v1.3.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
 
 > **Breaking Changes in v0.1.0**
 >
@@ -17,7 +17,7 @@ RsCNI provides a type-safe API for implementing CNI plugins in Rust, following t
 
 - **Idiomatic Rust**: Trait-based design with type safety and zero-cost abstractions
 - **Async Support**: Optional async/await support for high-performance plugins
-- **CNI Spec Compliant**: Supports CNI specification v0.3.1, v0.4.0, v1.0.0, and v1.1.0
+- **CNI Spec Compliant**: Supports CNI specification v0.3.1, v0.4.0, v1.0.0, v1.1.0 and v1.3.0
 - **Well-tested**: Comprehensive unit tests and integration tests
 
 ## Installation
@@ -65,6 +65,16 @@ impl Cni for MyCniPlugin {
         // Implement network validation logic
         Ok(CNIResult::default())
     }
+
+    fn status(&self, args: Args) -> Result<(), Error> {
+        // Implement status check
+        Ok(())
+    }
+
+    fn gc(&self, args: Args) -> Result<(), Error> {
+        // Implement gc logic
+        Ok(())
+    }
 }
 
 fn main() {
@@ -101,6 +111,16 @@ impl Cni for MyAsyncCniPlugin {
     async fn check(&self, args: Args) -> Result<CNIResult, Error> {
         // Async network validation
         Ok(CNIResult::default())
+    }
+
+    async fn status(&self, args: Args) -> Result<(), Error> {
+        // Implement status check
+        Ok(())
+    }
+
+    async fn gc(&self, args: Args) -> Result<(), Error> {
+        // Implement gc logic
+        Ok(())
     }
 }
 

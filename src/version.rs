@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::error::Error;
 
 /// `PluginInfo` is for supported CNI plugin version information.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#version>.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#version>.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
@@ -24,12 +24,13 @@ impl PluginInfo {
 impl Default for PluginInfo {
     fn default() -> Self {
         Self {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             supported_versions: vec![
                 "0.3.1".to_string(),
                 "0.4.0".to_string(),
                 "1.0.0".to_string(),
                 "1.1.0".to_string(),
+                "1.3.0".to_string(),
             ],
         }
     }
@@ -69,16 +70,17 @@ mod tests {
     #[test]
     fn plugin_info_validate() {
         let plugin_info = PluginInfo {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             supported_versions: vec![
                 "0.3.1".to_string(),
                 "0.4.0".to_string(),
                 "1.0.0".to_string(),
                 "1.1.0".to_string(),
+                "1.3.0".to_string(),
             ],
         };
 
-        let same_version = "1.1.0";
+        let same_version = "1.3.0";
 
         let res = plugin_info.validate(same_version);
         assert!(res.is_ok());

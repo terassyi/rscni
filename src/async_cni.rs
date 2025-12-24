@@ -14,7 +14,7 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    types::{Args, CNIResult, Cmd},
+    types::{Args, ArgsBuilder, CNIResult, Cmd},
     util::{Env, Io, OsEnv, StdIo},
     version::PluginInfo,
 };
@@ -22,13 +22,15 @@ use crate::{
 /// The core trait for implementing an async CNI plugin.
 ///
 /// Implement this trait to define the behavior of your CNI plugin for the
-/// ADD, DEL, and CHECK operations as specified by the CNI specification.
+/// ADD, DEL, CHECK, and STATUS operations as specified by the CNI specification.
 ///
 /// # CNI Operations
 ///
 /// - **ADD**: Called when a container is created. Set up the network interface.
 /// - **DEL**: Called when a container is deleted. Clean up the network interface.
 /// - **CHECK**: Called to verify that the network configuration is as expected.
+/// - **STATUS**: Called to check if the plugin is ready to service ADD requests.
+/// - **GC**: Called to clean up stale resources not in the valid attachments list.
 ///
 /// # Example
 ///
@@ -54,12 +56,22 @@ use crate::{
 ///         // Network verification logic
 ///         Ok(CNIResult::default())
 ///     }
+///
+///     async fn status(&self, _args: Args) -> Result<(), Error> {
+///         // Plugin readiness check
+///         Ok(())
+///     }
+///
+///     async fn gc(&self, _args: Args) -> Result<(), Error> {
+///         // Garbage collection logic
+///         Ok(())
+///     }
 /// }
 /// ```
 #[cfg_attr(feature = "async", async_trait)]
 pub trait Cni {
     /// Executes the ADD command for the CNI plugin.
-    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#add-add-container-to-network-or-apply-modifications>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-add-container-to-network-or-apply-modifications>
     ///
     /// This method is called when a container is created and needs network connectivity.
     /// It should set up the network interface, assign IP addresses, configure routes, etc.
@@ -80,7 +92,7 @@ pub trait Cni {
     async fn add(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the DEL command for the CNI plugin.
-    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications>
     ///
     /// This method is called when a container is being deleted and should clean up
     /// all network resources that were created during the ADD operation.
@@ -99,7 +111,7 @@ pub trait Cni {
     async fn del(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the CHECK command for the CNI plugin.
-    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#check-check-containers-networking-is-as-expected>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#check-check-containers-networking-is-as-expected>
     ///
     /// This method verifies that the network configuration is still correct and matches
     /// what was configured during ADD.
@@ -116,6 +128,57 @@ pub trait Cni {
     ///
     /// Returns an error if the CHECK operation fails.
     async fn check(&self, args: Args) -> Result<CNIResult, Error>;
+
+    /// Executes the STATUS command for the CNI plugin.
+    /// <https://www.cni.dev/docs/spec/#status-check-plugin-status>
+    ///
+    /// This method checks if the plugin is ready to service ADD requests.
+    /// A plugin must return success (exit with zero) if it is ready.
+    /// If the plugin knows that it cannot service ADD requests, it must return an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Contains CNI parameters. For STATUS, only `path` and `config` are typically used.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the plugin is ready to service ADD requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the plugin is not available:
+    /// - [`Error::PluginNotAvailable`](../error/enum.Error.html#variant.PluginNotAvailable) (code 50):
+    ///   The plugin cannot service ADD requests.
+    /// - [`Error::PluginNotAvailableLimitedConnectivity`](../error/enum.Error.html#variant.PluginNotAvailableLimitedConnectivity) (code 51):
+    ///   The plugin cannot service ADD requests, and existing containers may have limited connectivity.
+    async fn status(&self, args: Args) -> Result<(), Error>;
+
+    /// Executes the GC (Garbage Collection) command for the CNI plugin.
+    /// <https://www.cni.dev/docs/spec/#gc-clean-up-any-stale-resources>
+    ///
+    /// The GC command provides a way for runtimes to specify the expected set of
+    /// attachments to a network. The plugin should remove any resources related to
+    /// attachments that do not exist in the provided set.
+    ///
+    /// Resources that may be cleaned up include:
+    /// - IPAM reservations
+    /// - Firewall rules
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Contains CNI parameters. For GC, only `path` and `config` are required.
+    ///   The `config.valid_attachments` field contains the list of still-valid attachments.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the GC operation fails. Plugins should generally complete
+    /// a GC action without error. If an error is encountered, the plugin should continue
+    /// removing as many resources as possible and report errors back to the runtime.
+    async fn gc(&self, args: Args) -> Result<(), Error>;
 }
 
 /// Entry point for async CNI plugins.
@@ -130,7 +193,7 @@ impl Plugin {
     ///
     /// # Arguments
     ///
-    /// * `ver` - The primary CNI version (e.g., "1.1.0")
+    /// * `ver` - The primary CNI version (e.g., "1.3.0")
     /// * `versions` - List of supported CNI versions
     ///
     /// # Example
@@ -139,8 +202,8 @@ impl Plugin {
     /// use rscni::async_cni::Plugin;
     ///
     /// let plugin = Plugin::new(
-    ///     "1.1.0",
-    ///     vec!["1.0.0".to_string(), "1.1.0".to_string()]
+    ///     "1.3.0",
+    ///     vec!["1.0.0".to_string(), "1.1.0".to_string(), "1.3.0".to_string()]
     /// );
     /// ```
     #[must_use]
@@ -240,19 +303,71 @@ impl Plugin {
 
         match cmd {
             Cmd::Add => {
-                let args = Args::build::<E, I>()?;
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
                 let res = cni.add(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Del => {
-                let args = Args::build::<E, I>()?;
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
                 let res = cni.del(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Check => {
-                let args = Args::build::<E, I>()?;
+                let args = ArgsBuilder::<E, I>::new()
+                    .container_id()?
+                    .netns()?
+                    .ifname()?
+                    .args()?
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
                 let res = cni.check(args).await?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
+            }
+            Cmd::Status => {
+                // STATUS command only requires CNI_PATH (optional) and config from stdin
+                let args = ArgsBuilder::<E, I>::new()
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                cni.status(args).await?;
+                // STATUS returns no output on success
+                Ok(String::new())
+            }
+            Cmd::Gc => {
+                // GC command requires CNI_COMMAND and CNI_PATH, plus config from stdin
+                let args = ArgsBuilder::<E, I>::new()
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                cni.gc(args).await?;
+                // GC returns no output on success
+                Ok(String::new())
             }
             Cmd::Version => self.info.version(),
             Cmd::UnSet => Ok(self.info.about(self.msg.clone())),
@@ -359,6 +474,9 @@ mod tests {
                     name: "eth0".to_string(),
                     mac: "00:11:22:33:44:55".to_string(),
                     sandbox: Some("/var/run/netns/test".to_string()),
+                    mtu: None,
+                    socket_path: None,
+                    pci_id: None,
                 }],
                 ips: vec![IpConfig {
                     interface: Some(0),
@@ -370,6 +488,9 @@ mod tests {
                     gw: Some("10.1.0.1".to_string()),
                     mtu: None,
                     advmss: None,
+                    priority: None,
+                    table: None,
+                    scope: None,
                 }],
                 dns: Some(Dns {
                     nameservers: vec!["10.1.0.1".to_string()],
@@ -386,6 +507,14 @@ mod tests {
 
         async fn check(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult::default())
+        }
+
+        async fn status(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
+        }
+
+        async fn gc(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
         }
     }
 

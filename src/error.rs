@@ -1,7 +1,7 @@
 //! CNI error types and error handling.
 //!
 //! This module defines the error types used throughout the library, following the
-//! [CNI specification error format](https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error).
+//! [CNI specification error format](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#Error).
 //!
 //! # Error Handling in CNI Plugins
 //!
@@ -16,7 +16,7 @@ use thiserror::Error;
 /// Each variant corresponds to a specific error code and includes a detail message.
 /// When returned from a CNI plugin, these errors are automatically formatted as
 /// JSON error responses according to the CNI spec.
-/// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error>
+/// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#Error>
 ///
 /// # CNI Error Codes
 ///
@@ -80,6 +80,18 @@ pub enum Error {
     /// The runtime should retry the operation later.
     TryAgainLater(String),
 
+    /// Plugin not available (Error code: 50)
+    ///
+    /// Returned when the plugin is not available and cannot service ADD requests.
+    /// Used in response to STATUS command.
+    PluginNotAvailable(String),
+
+    /// Plugin not available with limited connectivity (Error code: 51)
+    ///
+    /// Returned when the plugin is not available, and existing containers in the
+    /// network may have limited connectivity. Used in response to STATUS command.
+    PluginNotAvailableLimitedConnectivity(String),
+
     /// Custom plugin-specific error (Error code: 100+)
     ///
     /// For plugin-specific errors with custom error codes (100+), messages,
@@ -121,6 +133,8 @@ impl Error {
             Self::FailedToDecode(details) => details.clone(),
             Self::InvalidNetworkConfig(details) => details.clone(),
             Self::TryAgainLater(details) => details.clone(),
+            Self::PluginNotAvailable(details) => details.clone(),
+            Self::PluginNotAvailableLimitedConnectivity(details) => details.clone(),
             Self::Custom(_, _, details) => details.clone(),
         }
     }
@@ -141,6 +155,10 @@ impl std::fmt::Display for Error {
             Self::FailedToDecode(_) => write!(f, "Failed to decode content"),
             Self::InvalidNetworkConfig(_) => write!(f, "Invalid network config"),
             Self::TryAgainLater(_) => write!(f, "Try again later"),
+            Self::PluginNotAvailable(_) => write!(f, "Plugin not available"),
+            Self::PluginNotAvailableLimitedConnectivity(_) => {
+                write!(f, "Plugin not available, limited connectivity")
+            }
             Self::Custom(_, msg, _) => write!(f, "Custom error: {msg}"),
         }
     }
@@ -157,6 +175,8 @@ impl From<&Error> for u32 {
             Error::FailedToDecode(_) => 6,
             Error::InvalidNetworkConfig(_) => 7,
             Error::TryAgainLater(_) => 11,
+            Error::PluginNotAvailable(_) => 50,
+            Error::PluginNotAvailableLimitedConnectivity(_) => 51,
             Error::Custom(code, _, _) => *code,
         }
     }
@@ -178,6 +198,8 @@ mod tests {
     #[case(Error::FailedToDecode("test".to_string()), 6)]
     #[case(Error::InvalidNetworkConfig("test".to_string()), 7)]
     #[case(Error::TryAgainLater("test".to_string()), 11)]
+    #[case(Error::PluginNotAvailable("test".to_string()), 50)]
+    #[case(Error::PluginNotAvailableLimitedConnectivity("test".to_string()), 51)]
     #[case(Error::Custom(100, "msg".to_string(), "details".to_string()), 100)]
     #[case(Error::Custom(255, "msg".to_string(), "details".to_string()), 255)]
     fn test_error_code_conversion(#[case] error: Error, #[case] expected_code: u32) {
@@ -199,7 +221,7 @@ mod tests {
         #[case] expected: Error,
     ) {
         let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             code,
             msg: "Test message".to_string(),
             details: details.to_string(),
@@ -218,7 +240,7 @@ mod tests {
         #[case] details: &str,
     ) {
         let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             code,
             msg: msg.to_string(),
             details: details.to_string(),
@@ -236,7 +258,7 @@ mod tests {
     #[test]
     fn test_error_result_to_error_conversion_unknown() {
         let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             code: 99,
             msg: "Unknown".to_string(),
             details: "unknown code".to_string(),

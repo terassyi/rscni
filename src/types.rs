@@ -34,6 +34,8 @@ pub(crate) enum Cmd {
     Add,
     Del,
     Check,
+    Gc,
+    Status,
     Version,
     /// Unset state when `CNI_COMMAND` is not set.
     UnSet,
@@ -47,6 +49,8 @@ impl FromStr for Cmd {
             "ADD" => Ok(Self::Add),
             "DEL" => Ok(Self::Del),
             "CHECK" => Ok(Self::Check),
+            "GC" => Ok(Self::Gc),
+            "STATUS" => Ok(Self::Status),
             "VERSION" => Ok(Self::Version),
             "" => Ok(Self::UnSet),
             _ => Err(Error::InvalidEnvValue(format!("unknown CNI_COMMAND: {s}"))),
@@ -60,6 +64,8 @@ impl From<Cmd> for &str {
             Cmd::Add => "ADD",
             Cmd::Del => "DEL",
             Cmd::Check => "CHECK",
+            Cmd::Gc => "GC",
+            Cmd::Status => "STATUS",
             Cmd::Version => "VERSION",
             Cmd::UnSet => "",
         }
@@ -77,63 +83,244 @@ impl Cmd {
 /// All fields except for `config` are given as environment values.
 /// `config` field is given as a JSON format data([`NetConf`]) from stdin.
 /// Depending on the type of command, some fields are omitted.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#cni-operations>.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
 #[derive(Debug, Default, Clone)]
 pub struct Args {
     /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
     /// Must not be empty.
     /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
-    pub container_id: String,
+    container_id: Option<String>,
     /// A reference to the container's "isolation domain".
     /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
-    pub netns: Option<PathBuf>,
+    netns: Option<PathBuf>,
     /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    pub ifname: String,
+    ifname: Option<String>,
     /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
-    pub args: Option<String>,
+    #[allow(clippy::struct_field_names)]
+    args: Option<String>,
     /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
-    pub path: Vec<PathBuf>,
+    path: Vec<PathBuf>,
     /// Please see [`NetConf`].
-    pub config: Option<NetConf>,
+    config: Option<NetConf>,
 }
 
 impl Args {
-    pub(crate) fn build<E: Env, I: Io>() -> Result<Self, Error> {
-        // let cmd = Cmd::from_str(&E::get::<String>(CNI_COMMAND)?)?;
-        let container_id = E::get(CNI_CONTAINERID)?;
-        let ifname = E::get(CNI_IFNAME)?;
-        let netns = PathBuf::from_str(&E::get::<String>(CNI_NETNS)?)
-            .map_err(|e| Error::InvalidEnvValue(e.to_string()))?;
-        let path: Vec<PathBuf> = E::get::<String>(CNI_PATH)?
-            .split(':')
-            .map(PathBuf::from)
-            .collect();
-        let args = match E::get::<String>(CNI_ARGS)? {
-            v if v.is_empty() => None,
-            v => Some(v),
-        };
+    /// Returns the container ID if present.
+    #[must_use]
+    pub fn container_id(&self) -> Option<&str> {
+        self.container_id.as_deref()
+    }
 
+    /// Returns the network namespace path if present.
+    #[must_use]
+    pub const fn netns(&self) -> Option<&PathBuf> {
+        self.netns.as_ref()
+    }
+
+    /// Returns the interface name if present.
+    #[must_use]
+    pub fn ifname(&self) -> Option<&str> {
+        self.ifname.as_deref()
+    }
+
+    /// Returns the extra arguments if present.
+    #[must_use]
+    pub fn args(&self) -> Option<&str> {
+        self.args.as_deref()
+    }
+
+    /// Returns the list of CNI plugin paths.
+    #[must_use]
+    pub fn path(&self) -> &[PathBuf] {
+        &self.path
+    }
+
+    /// Returns the network configuration if present.
+    #[must_use]
+    pub const fn config(&self) -> Option<&NetConf> {
+        self.config.as_ref()
+    }
+}
+
+/// Builder for constructing `Args` instances.
+#[derive(Debug)]
+pub struct ArgsBuilder<E: Env, I: Io> {
+    container_id: Option<String>,
+    netns: Option<PathBuf>,
+    ifname: Option<String>,
+    #[allow(clippy::struct_field_names)]
+    args: Option<String>,
+    path: Vec<PathBuf>,
+    config: Option<NetConf>,
+    _phantom_e: std::marker::PhantomData<E>,
+    _phantom_i: std::marker::PhantomData<I>,
+}
+
+impl<E: Env, I: Io> ArgsBuilder<E, I> {
+    /// Creates a new `ArgsBuilder`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            container_id: None,
+            netns: None,
+            ifname: None,
+            args: None,
+            path: Vec::new(),
+            config: None,
+            _phantom_e: std::marker::PhantomData,
+            _phantom_i: std::marker::PhantomData,
+        }
+    }
+
+    /// Reads container ID from the `CNI_CONTAINERID` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn container_id(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_CONTAINERID) {
+            Ok(val) => self.container_id = Some(val),
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads network namespace from the `CNI_NETNS` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn netns(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_NETNS) {
+            Ok(val) => {
+                self.netns = PathBuf::from_str(&val)
+                    .map_err(|e| Error::FailedToDecode(e.to_string()))
+                    .ok();
+            }
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads interface name from the `CNI_IFNAME` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn ifname(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_IFNAME) {
+            Ok(val) => self.ifname = Some(val),
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads extra arguments from the `CNI_ARGS` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn args(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_ARGS) {
+            Ok(val) => self.args = if val.is_empty() { None } else { Some(val) },
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads CNI plugin paths from the `CNI_PATH` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable is set but cannot be read properly.
+    pub fn path(mut self) -> Result<Self, Error> {
+        match E::get::<String>(CNI_PATH) {
+            Ok(val) => self.path = val.split(':').map(PathBuf::from).collect(),
+            Err(e) => return Err(e),
+        }
+        Ok(self)
+    }
+
+    /// Reads network configuration from stdin.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Failed to read from stdin
+    /// - Failed to parse JSON configuration
+    pub fn config(mut self) -> Result<Self, Error> {
         let mut buf = String::new();
         I::io_in()
             .read_to_string(&mut buf)
             .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-        let config: NetConf =
+        self.config =
             serde_json::from_str(&buf).map_err(|e| Error::FailedToDecode(e.to_string()))?;
+        Ok(self)
+    }
 
-        Ok(Self {
-            container_id,
-            netns: Some(netns),
-            ifname,
-            args,
-            path,
-            config: Some(config),
+    /// Validates required fields based on the CNI command.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required fields are missing for the given command:
+    /// - `ADD`/`DEL`/`CHECK` commands require `container_id` and `ifname`
+    /// - `GC` command requires `path` (`CNI_PATH`)
+    pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
+        match cmd {
+            Cmd::Add | Cmd::Del | Cmd::Check => {
+                // These commands require container_id and ifname
+                if self.container_id.is_none() {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_CONTAINERID is required for ADD/DEL/CHECK commands".to_string(),
+                    ));
+                }
+                if self.ifname.is_none() {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_IFNAME is required for ADD/DEL/CHECK commands".to_string(),
+                    ));
+                }
+            }
+            Cmd::Gc => {
+                // GC command requires CNI_PATH
+                if self.path.is_empty() {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_PATH is required for GC command".to_string(),
+                    ));
+                }
+            }
+            Cmd::Status | Cmd::Version | Cmd::UnSet => {
+                // These commands don't require container-specific parameters
+            }
+        }
+        Ok(self)
+    }
+
+    /// Builds the `Args` instance.
+    ///
+    /// # Errors
+    ///
+    /// This function currently always returns `Ok`, but returns `Result` for API consistency.
+    pub fn build(self) -> Result<Args, Error> {
+        Ok(Args {
+            container_id: self.container_id,
+            netns: self.netns,
+            ifname: self.ifname,
+            args: self.args,
+            path: self.path,
+            config: self.config,
         })
     }
 }
 
+impl<E: Env, I: Io> Default for ArgsBuilder<E, I> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// `NetConf` will be given as a JSON serialized data from stdin when plugin is called.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#section-1-network-configuration-format>.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#section-1-network-configuration-format>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct NetConf {
@@ -155,7 +342,7 @@ pub struct NetConf {
     /// A JSON object, consisting of the union of capabilities provided by the plugin and requested by the runtime
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_config: Option<RuntimeConf>,
-    /// See <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#deriving-runtimeconfig>.
+    /// See <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#deriving-runtimeconfig>.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<HashMap<String, Value>>,
     /// If supported by the plugin, sets up an IP masquerade on the host for this network.
@@ -173,6 +360,12 @@ pub struct NetConf {
     /// A JSON object, consisting of the result type returned by the "previous" plugin. The meaning of "previous" is defined by the specific operation (add, delete, or check).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_result: Option<CNIResult>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "cni.dev/valid-attachments"
+    )]
+    pub valid_attachments: Option<Vec<GcAttachment>>,
     #[serde(flatten)]
     pub custom: HashMap<String, Value>,
 }
@@ -183,6 +376,7 @@ pub struct NetConf {
 pub struct NetConfList {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
     pub cni_version: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cni_versions: Vec<String>,
     /// Network name.
     /// This should be unique across all network configurations on a host (or other administrative domain).
@@ -194,9 +388,25 @@ pub struct NetConfList {
     ///
     #[serde(default)] // default is false
     pub disable_check: bool,
+    /// Either true or false.
+    /// If disableGC is true, runtimes must not call GC for this network configuration list.
+    /// (CNI spec v1.2.1+)
+    #[serde(default)] // default is false
+    pub disable_gc: bool,
+    /// Either true or false.
+    /// If loadOnlyInlinedPlugins is true, runtimes must not load any plugins from the filesystem.
+    /// (CNI spec v1.3.0+)
+    #[serde(default)] // default is false
+    pub load_only_inlined_plugins: bool,
     /// A list of CNI plugins and their configuration, which is a list of plugin configuration objects.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<NetConf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GcAttachment {
+    pub container_id: String,
+    pub ifname: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -249,16 +459,25 @@ pub struct Route {
     pub mtu: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advmss: Option<u32>,
+    /// Route priority (for OSes that support it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u32>,
+    /// Routing table ID (for OSes that support it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<u32>,
+    /// Route scope (for OSes that support it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<u32>,
 }
 
 /// `CNIResult` represents the Success result type.
 /// `CmdFm` returns this if it finish successfully.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#success>.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#success>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CNIResult {
     /// In case of delegated plugins(IPAM), it may omit interfaces or ips sections.
-    /// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#delegated-plugins-ipam>.
+    /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#delegated-plugins-ipam>.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub interfaces: Vec<Interface>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -287,10 +506,19 @@ pub struct Interface {
     pub name: String,
     /// The hardware address of the interface.
     pub mac: String,
+    /// The MTU of the interface (if applicable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtu: Option<u32>,
     /// The isolation domain reference(e.g. path to network namespace) for the interface, or empty if on the host.
     /// For interfaces created inside the container, this should be the value passes via `CNI_NETNS`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<String>,
+    /// An absolute path to a socket file corresponding to this interface, if applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub socket_path: Option<String>,
+    /// The platform-specific identifier of the PCI device corresponding to this interface, if applicable.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "pciID")]
+    pub pci_id: Option<String>,
 }
 
 /// IP assigned by the plugin.
@@ -353,6 +581,8 @@ impl From<&ErrorResult> for Error {
             6 => Self::FailedToDecode(res.details.clone()),
             7 => Self::InvalidNetworkConfig(res.details.clone()),
             11 => Self::TryAgainLater(res.details.clone()),
+            50 => Self::PluginNotAvailable(res.details.clone()),
+            51 => Self::PluginNotAvailableLimitedConnectivity(res.details.clone()),
             _ => Self::FailedToDecode(format!("unknown error code: {}", res.code)),
         }
     }
@@ -368,14 +598,16 @@ mod tests {
     use crate::error::Error;
 
     use super::{
-        CNIResult, Cmd, Dns, Interface, IpConfig, Ipam, NetConf, PortMapping, Protocol, Route,
-        RuntimeConf,
+        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, NetConfList,
+        PortMapping, Protocol, Route, RuntimeConf,
     };
 
     #[rstest]
     #[case("ADD", Cmd::Add)]
     #[case("DEL", Cmd::Del)]
     #[case("CHECK", Cmd::Check)]
+    #[case("GC", Cmd::Gc)]
+    #[case("STATUS", Cmd::Status)]
     #[case("VERSION", Cmd::Version)]
     #[case("", Cmd::UnSet)]
     fn test_cmd_from_str(#[case] input: &str, #[case] expected: Cmd) {
@@ -399,11 +631,80 @@ mod tests {
     #[case(Cmd::Add, "ADD")]
     #[case(Cmd::Del, "DEL")]
     #[case(Cmd::Check, "CHECK")]
+    #[case(Cmd::Gc, "GC")]
     #[case(Cmd::Version, "VERSION")]
     #[case(Cmd::UnSet, "")]
     fn test_cmd_to_str(#[case] cmd: Cmd, #[case] expected: &str) {
         let result: &str = cmd.into();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gc_attachment_serialize() {
+        let attachment = GcAttachment {
+            container_id: "container-123".to_string(),
+            ifname: "eth0".to_string(),
+        };
+        let json = serde_json::to_string(&attachment).unwrap();
+        let expected = r#"{"container_id":"container-123","ifname":"eth0"}"#;
+        assert_eq!(json, expected);
+
+        let deserialized: GcAttachment = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.container_id, "container-123");
+        assert_eq!(deserialized.ifname, "eth0");
+    }
+
+    #[test]
+    fn test_net_conf_with_valid_attachments() {
+        let json = r#"{
+            "cniVersion": "1.3.0",
+            "name": "test-network",
+            "type": "bridge",
+            "cni.dev/valid-attachments": [
+                {"container_id": "container-1", "ifname": "eth0"},
+                {"container_id": "container-2", "ifname": "eth1"}
+            ]
+        }"#;
+
+        let conf: NetConf = serde_json::from_str(json).unwrap();
+        assert_eq!(conf.cni_version, "1.3.0");
+        assert_eq!(conf.name, "test-network");
+        assert_eq!(conf.r#type, "bridge");
+        assert!(conf.valid_attachments.is_some());
+
+        let attachments = conf.valid_attachments.unwrap();
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[0].container_id, "container-1");
+        assert_eq!(attachments[0].ifname, "eth0");
+        assert_eq!(attachments[1].container_id, "container-2");
+        assert_eq!(attachments[1].ifname, "eth1");
+
+        // Test serialization
+        let conf_with_attachments = NetConf {
+            cni_version: "1.3.0".to_string(),
+            cni_versions: None,
+            name: "test-network".to_string(),
+            r#type: "bridge".to_string(),
+            disable_check: None,
+            runtime_config: None,
+            capabilities: None,
+            ip_masq: None,
+            ipam: None,
+            dns: None,
+            args: None,
+            prev_result: None,
+            valid_attachments: Some(vec![GcAttachment {
+                container_id: "container-1".to_string(),
+                ifname: "eth0".to_string(),
+            }]),
+            custom: HashMap::new(),
+        };
+        let serialized = serde_json::to_value(&conf_with_attachments).unwrap();
+        assert!(serialized["cni.dev/valid-attachments"].is_array());
+        assert_eq!(
+            serialized["cni.dev/valid-attachments"][0]["container_id"],
+            "container-1"
+        );
     }
 
     #[rstest(
@@ -412,7 +713,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#add-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "bridge",
   "bridge": "cni0",
@@ -427,7 +728,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
@@ -454,12 +755,13 @@ mod tests {
                     ("bridge".to_string(), serde_json::Value::String("cni0".to_string())),
                     ("keyA".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("some more".to_string()), serde_json::Value::String("plugin specific".to_string()), serde_json::Value::String("configuration".to_string())])),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#deriving-runtimeconfig
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "test",
   "type": "myPlugin",
   "capabilities": {
@@ -467,7 +769,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "test".to_string(),
                 r#type: "myPlugin".to_string(),
@@ -482,12 +784,13 @@ mod tests {
                 args: None,
                 prev_result: None,
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#deriving-runtimeconfig
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "test",
   "type": "myPlugin",
   "capabilities": {
@@ -498,7 +801,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "test".to_string(),
                 r#type: "myPlugin".to_string(),
@@ -522,12 +825,13 @@ mod tests {
                 args: None,
                 prev_result: None,
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#add-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "tuning",
   "sysctl": {
@@ -570,7 +874,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "tuning".to_string(),
@@ -597,16 +901,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "99:88:77:66:55:44".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -615,6 +928,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -627,12 +943,13 @@ mod tests {
                 custom: HashMap::from([
                     ("sysctl".to_string(), json!({"net.core.somaxconn": "500"})),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#add-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "portmap",
   "runtimeConfig": {
@@ -674,7 +991,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "portmap".to_string(),
@@ -707,16 +1024,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -725,6 +1051,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -735,12 +1064,13 @@ mod tests {
                   }),
                 }),
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#delete-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "portmap",
   "runtimeConfig": {
@@ -782,7 +1112,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "portmap".to_string(),
@@ -815,16 +1145,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -833,6 +1172,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -843,12 +1185,13 @@ mod tests {
                   }),
                 }),
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#delete-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "tuning",
   "sysctl": {
@@ -891,7 +1234,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "tuning".to_string(),
@@ -918,16 +1261,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -936,6 +1288,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -948,12 +1303,13 @@ mod tests {
                 custom: HashMap::from([
                     ("sysctl".to_string(), json!({"net.core.somaxconn": "500"})),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#delete-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "bridge",
   "bridge": "cni0",
@@ -1000,7 +1356,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
@@ -1035,16 +1391,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1053,6 +1418,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1066,12 +1434,13 @@ mod tests {
                     ("bridge".to_string(), serde_json::Value::String("cni0".to_string())),
                     ("keyA".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("some more".to_string()), serde_json::Value::String("plugin specific".to_string()), serde_json::Value::String("configuration".to_string())])),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
           // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#check-example
             r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "name": "dbnet",
   "type": "bridge",
   "bridge": "cni0",
@@ -1118,7 +1487,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.1.0".to_string(),
+                cni_version: "1.3.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
@@ -1153,16 +1522,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1171,6 +1549,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1184,6 +1565,7 @@ mod tests {
                     ("keyA".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("some more".to_string()), serde_json::Value::String("plugin specific".to_string()), serde_json::Value::String("configuration".to_string())])),
                     ("bridge".to_string(), serde_json::Value::String("cni0".to_string())),
                 ]),
+                valid_attachments: None,
             },
         ),
     )]
@@ -1231,6 +1613,9 @@ mod tests {
               gw: None,
               mtu: None,
               advmss: None,
+              priority: None,
+              table: None,
+              scope: None,
             },
           ],
           dns: Some(Dns{
@@ -1281,16 +1666,25 @@ mod tests {
               name: "cni0".to_string(),
               mac: "00:11:22:33:44:55".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "veth3243".to_string(),
               mac: "55:44:33:22:11:11".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "eth0".to_string(),
               mac: "99:88:77:66:55:44".to_string(),
               sandbox: Some("/var/run/netns/blue".to_string()),
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
           ],
           ips: vec![IpConfig{
@@ -1304,6 +1698,9 @@ mod tests {
               gw: None,
               mtu: None,
               advmss: None,
+              priority: None,
+              table: None,
+              scope: None,
             },
           ],
           dns: Some(Dns{
@@ -1354,16 +1751,25 @@ mod tests {
               name: "cni0".to_string(),
               mac: "00:11:22:33:44:55".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "veth3243".to_string(),
               mac: "55:44:33:22:11:11".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "eth0".to_string(),
               mac: "99:88:77:66:55:44".to_string(),
               sandbox: Some("/var/run/netns/blue".to_string()),
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
           ],
           ips: vec![IpConfig{
@@ -1377,6 +1783,9 @@ mod tests {
               gw: None,
               mtu: None,
               advmss: None,
+              priority: None,
+              table: None,
+              scope: None,
             },
           ],
           dns: Some(Dns{
@@ -1399,27 +1808,106 @@ mod tests {
     }
 
     #[rstest]
+    // Basic interface with sandbox only
     #[case(
         Interface {
             name: "eth0".to_string(),
             mac: "00:11:22:33:44:55".to_string(),
             sandbox: Some("/var/run/netns/test".to_string()),
-        },
-        true
+            mtu: None,
+            socket_path: None,
+            pci_id: None,
+        }
     )]
+    // Minimal interface without optional fields
     #[case(
         Interface {
             name: "veth0".to_string(),
             mac: "aa:bb:cc:dd:ee:ff".to_string(),
             sandbox: None,
-        },
-        false
-    )]
-    fn test_interface_serialize(#[case] interface: Interface, #[case] has_sandbox: bool) {
-        let json = serde_json::to_string(&interface).unwrap();
-        if !has_sandbox {
-            assert!(!json.contains("sandbox"));
+            mtu: None,
+            socket_path: None,
+            pci_id: None,
         }
+    )]
+    // Interface with MTU (CNI v1.1.0+)
+    #[case(
+        Interface {
+            name: "eth1".to_string(),
+            mac: "00:11:22:33:44:66".to_string(),
+            mtu: Some(1500),
+            sandbox: Some("/var/run/netns/test".to_string()),
+            socket_path: None,
+            pci_id: None,
+        }
+    )]
+    // Interface with socket_path for vhost-user (CNI v1.1.0+)
+    #[case(
+        Interface {
+            name: "tap0".to_string(),
+            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+            mtu: None,
+            sandbox: None,
+            socket_path: Some("/var/run/vhost-user/tap0.sock".to_string()),
+            pci_id: None,
+        }
+    )]
+    // Interface with PCI device ID (CNI v1.1.0+)
+    #[case(
+        Interface {
+            name: "net0".to_string(),
+            mac: "11:22:33:44:55:66".to_string(),
+            mtu: Some(9000),
+            sandbox: Some("/var/run/netns/container1".to_string()),
+            socket_path: None,
+            pci_id: Some("0000:03:00.0".to_string()),
+        }
+    )]
+    // Interface with all optional fields
+    #[case(
+        Interface {
+            name: "eth2".to_string(),
+            mac: "ff:ee:dd:cc:bb:aa".to_string(),
+            mtu: Some(1500),
+            sandbox: Some("/var/run/netns/test".to_string()),
+            socket_path: Some("/var/run/socket/eth1.sock".to_string()),
+            pci_id: Some("0000:04:00.1".to_string()),
+        }
+    )]
+    fn test_interface_serialize(#[case] interface: Interface) {
+        // Serialize to JSON
+        let json = serde_json::to_string(&interface).unwrap();
+
+        // Verify basic fields are always present
+        assert!(json.contains(&format!("\"name\":\"{}\"", interface.name)));
+        assert!(json.contains(&format!("\"mac\":\"{}\"", interface.mac)));
+
+        // Verify optional fields serialization with correct camelCase naming
+        if let Some(ref mtu) = interface.mtu {
+            assert!(json.contains(&format!("\"mtu\":{}", mtu)));
+        } else {
+            assert!(!json.contains("\"mtu\""));
+        }
+
+        if let Some(ref sandbox) = interface.sandbox {
+            assert!(json.contains(&format!("\"sandbox\":\"{}\"", sandbox)));
+        } else {
+            assert!(!json.contains("\"sandbox\""));
+        }
+
+        if let Some(ref socket_path) = interface.socket_path {
+            assert!(json.contains(&format!("\"socketPath\":\"{}\"", socket_path)));
+        } else {
+            assert!(!json.contains("\"socketPath\""));
+        }
+
+        if let Some(ref pci_id) = interface.pci_id {
+            assert!(json.contains(&format!("\"pciID\":\"{}\"", pci_id)));
+        } else {
+            assert!(!json.contains("\"pciID\""));
+        }
+
+        // Verify round-trip serialization
         let deserialized: Interface = serde_json::from_str(&json).unwrap();
         assert_eq!(interface, deserialized);
     }
@@ -1466,6 +1954,9 @@ mod tests {
             gw: Some("192.168.1.1".to_string()),
             mtu: Some(1500),
             advmss: Some(1460),
+            priority: None,
+            table: None,
+            scope: None,
         },
         true,
         true
@@ -1476,6 +1967,9 @@ mod tests {
             gw: None,
             mtu: None,
             advmss: None,
+            priority: None,
+            table: None,
+            scope: None,
         },
         false,
         false
@@ -1579,6 +2073,9 @@ mod tests {
                 name: "eth0".to_string(),
                 mac: "00:11:22:33:44:55".to_string(),
                 sandbox: None,
+                mtu: None,
+                socket_path: None,
+                pci_id: None,
             }],
             ips: vec![IpConfig {
                 interface: Some(0),
@@ -1590,6 +2087,9 @@ mod tests {
                 gw: Some("192.168.1.1".to_string()),
                 mtu: None,
                 advmss: None,
+                priority: None,
+                table: None,
+                scope: None,
             }],
             dns: Some(Dns {
                 nameservers: vec!["8.8.8.8".to_string()],
@@ -1714,12 +2214,12 @@ mod tests {
     )]
     #[case(
         r#"{
-  "cniVersion": "1.1.0",
+  "cniVersion": "1.3.0",
   "interfaces": [],
   "ips": [],
   "routes": []
 }"#,
-        "1.1.0",
+        "1.3.0",
         0,
         0,
         0,
@@ -1734,7 +2234,7 @@ mod tests {
         #[case] has_dns: bool,
     ) {
         // CNI spec requires cniVersion in the success result
-        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#success
+        // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#success
         let result: super::CNIResultWithCNIVersion = serde_json::from_str(input).unwrap();
         assert_eq!(result.cni_version, expected_version);
         assert_eq!(result.inner.interfaces.len(), expected_interfaces);
@@ -1746,7 +2246,7 @@ mod tests {
     #[test]
     fn test_ipam_delegated_plugin_result() {
         // IPAM delegated plugins return abbreviated Success object without interfaces
-        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#delegated-plugins-ipam
+        // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#delegated-plugins-ipam
         let input = r#"{
   "ips": [
     {
@@ -1782,6 +2282,9 @@ mod tests {
             gw: Some("10.1.0.1".to_string()),
             mtu: Some(1500),
             advmss: Some(1460),
+            priority: None,
+            table: None,
+            scope: None,
         },
         true,
         true
@@ -1792,6 +2295,9 @@ mod tests {
             gw: None,
             mtu: Some(9000),
             advmss: None,
+            priority: None,
+            table: None,
+            scope: None,
         },
         true,
         false
@@ -1843,7 +2349,7 @@ mod tests {
     )]
     fn test_net_conf_with_ip_masq(#[case] input: &str, #[case] expected: Option<bool>) {
         // ipMasq is a well-known optional field
-        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#plugin-configuration-objects
+        // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#plugin-configuration-objects
         let conf: NetConf = serde_json::from_str(input).unwrap();
         assert_eq!(conf.ip_masq, expected);
 
@@ -1899,7 +2405,7 @@ mod tests {
         #[case] has_options: bool,
     ) {
         // Test DNS with all optional fields populated
-        // ref: https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#plugin-configuration-objects
+        // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#plugin-configuration-objects
         let json = serde_json::to_string(&dns).unwrap();
         let deserialized: Dns = serde_json::from_str(&json).unwrap();
 

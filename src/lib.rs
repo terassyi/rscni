@@ -35,6 +35,16 @@
 //! #         // Implement network check logic
 //! #         Ok(CNIResult::default())
 //! #     }
+//! #
+//! #     fn status(&self, _args: Args) -> Result<(), Error> {
+//! #         // Implement plugin readiness check
+//! #         Ok(())
+//! #     }
+//! #
+//! #     fn gc(&self, _args: Args) -> Result<(), Error> {
+//! #         // Implement garbage collection logic
+//! #         Ok(())
+//! #     }
 //! # }
 //! #
 //! let my_plugin = MyPlugin;
