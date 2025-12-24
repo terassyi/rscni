@@ -24,12 +24,13 @@ impl PluginInfo {
 impl Default for PluginInfo {
     fn default() -> Self {
         Self {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             supported_versions: vec![
                 "0.3.1".to_string(),
                 "0.4.0".to_string(),
                 "1.0.0".to_string(),
                 "1.1.0".to_string(),
+                "1.3.0".to_string(),
             ],
         }
     }
@@ -69,16 +70,17 @@ mod tests {
     #[test]
     fn plugin_info_validate() {
         let plugin_info = PluginInfo {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             supported_versions: vec![
                 "0.3.1".to_string(),
                 "0.4.0".to_string(),
                 "1.0.0".to_string(),
                 "1.1.0".to_string(),
+                "1.3.0".to_string(),
             ],
         };
 
-        let same_version = "1.1.0";
+        let same_version = "1.3.0";
 
         let res = plugin_info.validate(same_version);
         assert!(res.is_ok());

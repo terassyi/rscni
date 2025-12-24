@@ -376,6 +376,7 @@ pub struct NetConf {
 pub struct NetConfList {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
     pub cni_version: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cni_versions: Vec<String>,
     /// Network name.
     /// This should be unique across all network configurations on a host (or other administrative domain).
@@ -387,6 +388,16 @@ pub struct NetConfList {
     ///
     #[serde(default)] // default is false
     pub disable_check: bool,
+    /// Either true or false.
+    /// If disableGC is true, runtimes must not call GC for this network configuration list.
+    /// (CNI spec v1.2.1+)
+    #[serde(default)] // default is false
+    pub disable_gc: bool,
+    /// Either true or false.
+    /// If loadOnlyInlinedPlugins is true, runtimes must not load any plugins from the filesystem.
+    /// (CNI spec v1.3.0+)
+    #[serde(default)] // default is false
+    pub load_only_inlined_plugins: bool,
     /// A list of CNI plugins and their configuration, which is a list of plugin configuration objects.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<NetConf>,
@@ -587,8 +598,8 @@ mod tests {
     use crate::error::Error;
 
     use super::{
-        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, PortMapping,
-        Protocol, Route, RuntimeConf,
+        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, NetConfList,
+        PortMapping, Protocol, Route, RuntimeConf,
     };
 
     #[rstest]
