@@ -265,7 +265,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if required fields are missing for the given command:
     /// - `ADD`/`DEL`/`CHECK` commands require `container_id` and `ifname`
-    /// - `GC` command requires `path` (CNI_PATH)
+    /// - `GC` command requires `path` (`CNI_PATH`)
     pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
         match cmd {
             Cmd::Add | Cmd::Del | Cmd::Check => {
@@ -1866,36 +1866,36 @@ mod tests {
     fn test_interface_serialize(#[case] interface: Interface) {
         // Serialize to JSON
         let json = serde_json::to_string(&interface).unwrap();
-        
+
         // Verify basic fields are always present
         assert!(json.contains(&format!("\"name\":\"{}\"", interface.name)));
         assert!(json.contains(&format!("\"mac\":\"{}\"", interface.mac)));
-        
+
         // Verify optional fields serialization with correct camelCase naming
         if let Some(ref mtu) = interface.mtu {
             assert!(json.contains(&format!("\"mtu\":{}", mtu)));
         } else {
             assert!(!json.contains("\"mtu\""));
         }
-        
+
         if let Some(ref sandbox) = interface.sandbox {
             assert!(json.contains(&format!("\"sandbox\":\"{}\"", sandbox)));
         } else {
             assert!(!json.contains("\"sandbox\""));
         }
-        
+
         if let Some(ref socket_path) = interface.socket_path {
             assert!(json.contains(&format!("\"socketPath\":\"{}\"", socket_path)));
         } else {
             assert!(!json.contains("\"socketPath\""));
         }
-        
+
         if let Some(ref pci_id) = interface.pci_id {
             assert!(json.contains(&format!("\"pciID\":\"{}\"", pci_id)));
         } else {
             assert!(!json.contains("\"pciID\""));
         }
-        
+
         // Verify round-trip serialization
         let deserialized: Interface = serde_json::from_str(&json).unwrap();
         assert_eq!(interface, deserialized);
