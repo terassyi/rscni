@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::error::Error;
 
 /// `PluginInfo` is for supported CNI plugin version information.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#version>.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#version>.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {

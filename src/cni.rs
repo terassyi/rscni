@@ -56,7 +56,7 @@ use crate::{
 /// ```
 pub trait Cni {
     /// Executes the ADD command for the CNI plugin.
-    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#add-add-container-to-network-or-apply-modifications>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-add-container-to-network-or-apply-modifications>
     ///
     /// This method is called when a container is created and needs network connectivity.
     /// It should set up the network interface, assign IP addresses, configure routes, etc.
@@ -77,7 +77,7 @@ pub trait Cni {
     fn add(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the DEL command for the CNI plugin.
-    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications>
     ///
     /// This method is called when a container is being deleted and should clean up
     /// all network resources that were created during the ADD operation.
@@ -96,7 +96,7 @@ pub trait Cni {
     fn del(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the CHECK command for the CNI plugin.
-    /// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#check-check-containers-networking-is-as-expected>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#check-check-containers-networking-is-as-expected>
     ///
     /// This method verifies that the network configuration is still correct and matches
     /// what was configured during ADD.
@@ -204,7 +204,7 @@ impl Plugin {
     ///
     /// # Arguments
     ///
-    /// * `ver` - The primary CNI version this plugin uses (e.g., "1.1.0")
+    /// * `ver` - The primary CNI version this plugin uses (e.g., "1.3.0")
     /// * `versions` - List of all CNI versions this plugin supports
     ///
     /// # Example
@@ -213,8 +213,8 @@ impl Plugin {
     /// use rscni::cni::Plugin;
     ///
     /// let plugin = Plugin::new(
-    ///     "1.1.0",
-    ///     vec!["1.0.0".to_string(), "1.1.0".to_string()]
+    ///     "1.3.0",
+    ///     vec!["1.0.0".to_string(), "1.1.0".to_string(), "1.3.0".to_string()]
     /// );
     /// ```
     #[must_use]

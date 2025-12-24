@@ -1,7 +1,7 @@
 //! CNI error types and error handling.
 //!
 //! This module defines the error types used throughout the library, following the
-//! [CNI specification error format](https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error).
+//! [CNI specification error format](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#Error).
 //!
 //! # Error Handling in CNI Plugins
 //!
@@ -16,7 +16,7 @@ use thiserror::Error;
 /// Each variant corresponds to a specific error code and includes a detail message.
 /// When returned from a CNI plugin, these errors are automatically formatted as
 /// JSON error responses according to the CNI spec.
-/// <https://github.com/containernetworking/cni/blob/v1.1.0/SPEC.md#Error>
+/// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#Error>
 ///
 /// # CNI Error Codes
 ///
@@ -221,7 +221,7 @@ mod tests {
         #[case] expected: Error,
     ) {
         let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             code,
             msg: "Test message".to_string(),
             details: details.to_string(),
@@ -240,7 +240,7 @@ mod tests {
         #[case] details: &str,
     ) {
         let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             code,
             msg: msg.to_string(),
             details: details.to_string(),
@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn test_error_result_to_error_conversion_unknown() {
         let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
+            cni_version: "1.3.0".to_string(),
             code: 99,
             msg: "Unknown".to_string(),
             details: "unknown code".to_string(),
