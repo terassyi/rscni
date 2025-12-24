@@ -34,6 +34,7 @@ pub(crate) enum Cmd {
     Add,
     Del,
     Check,
+    Gc,
     Status,
     Version,
     /// Unset state when `CNI_COMMAND` is not set.
@@ -48,6 +49,7 @@ impl FromStr for Cmd {
             "ADD" => Ok(Self::Add),
             "DEL" => Ok(Self::Del),
             "CHECK" => Ok(Self::Check),
+            "GC" => Ok(Self::Gc),
             "STATUS" => Ok(Self::Status),
             "VERSION" => Ok(Self::Version),
             "" => Ok(Self::UnSet),
@@ -62,6 +64,7 @@ impl From<Cmd> for &str {
             Cmd::Add => "ADD",
             Cmd::Del => "DEL",
             Cmd::Check => "CHECK",
+            Cmd::Gc => "GC",
             Cmd::Status => "STATUS",
             Cmd::Version => "VERSION",
             Cmd::UnSet => "",
@@ -262,6 +265,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if required fields are missing for the given command:
     /// - `ADD`/`DEL`/`CHECK` commands require `container_id` and `ifname`
+    /// - `GC` command requires `path` (CNI_PATH)
     pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
         match cmd {
             Cmd::Add | Cmd::Del | Cmd::Check => {
@@ -274,6 +278,14 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
                 if self.ifname.is_none() {
                     return Err(Error::InvalidEnvValue(
                         "CNI_IFNAME is required for ADD/DEL/CHECK commands".to_string(),
+                    ));
+                }
+            }
+            Cmd::Gc => {
+                // GC command requires CNI_PATH
+                if self.path.is_empty() {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_PATH is required for GC command".to_string(),
                     ));
                 }
             }
@@ -348,6 +360,12 @@ pub struct NetConf {
     /// A JSON object, consisting of the result type returned by the "previous" plugin. The meaning of "previous" is defined by the specific operation (add, delete, or check).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_result: Option<CNIResult>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "cni.dev/valid-attachments"
+    )]
+    pub valid_attachments: Option<Vec<GcAttachment>>,
     #[serde(flatten)]
     pub custom: HashMap<String, Value>,
 }
@@ -372,6 +390,12 @@ pub struct NetConfList {
     /// A list of CNI plugins and their configuration, which is a list of plugin configuration objects.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<NetConf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GcAttachment {
+    pub container_id: String,
+    pub ifname: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -545,14 +569,15 @@ mod tests {
     use crate::error::Error;
 
     use super::{
-        CNIResult, Cmd, Dns, Interface, IpConfig, Ipam, NetConf, PortMapping, Protocol, Route,
-        RuntimeConf,
+        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, PortMapping,
+        Protocol, Route, RuntimeConf,
     };
 
     #[rstest]
     #[case("ADD", Cmd::Add)]
     #[case("DEL", Cmd::Del)]
     #[case("CHECK", Cmd::Check)]
+    #[case("GC", Cmd::Gc)]
     #[case("STATUS", Cmd::Status)]
     #[case("VERSION", Cmd::Version)]
     #[case("", Cmd::UnSet)]
@@ -577,11 +602,79 @@ mod tests {
     #[case(Cmd::Add, "ADD")]
     #[case(Cmd::Del, "DEL")]
     #[case(Cmd::Check, "CHECK")]
+    #[case(Cmd::Gc, "GC")]
     #[case(Cmd::Version, "VERSION")]
     #[case(Cmd::UnSet, "")]
     fn test_cmd_to_str(#[case] cmd: Cmd, #[case] expected: &str) {
         let result: &str = cmd.into();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gc_attachment_serialize() {
+        let attachment = GcAttachment {
+            container_id: "container-123".to_string(),
+            ifname: "eth0".to_string(),
+        };
+        let json = serde_json::to_string(&attachment).unwrap();
+        let expected = r#"{"container_id":"container-123","ifname":"eth0"}"#;
+        assert_eq!(json, expected);
+
+        let deserialized: GcAttachment = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.container_id, "container-123");
+        assert_eq!(deserialized.ifname, "eth0");
+    }
+
+    #[test]
+    fn test_net_conf_with_valid_attachments() {
+        let json = r#"{
+            "cniVersion": "1.3.0",
+            "name": "test-network",
+            "type": "bridge",
+            "cni.dev/valid-attachments": [
+                {"container_id": "container-1", "ifname": "eth0"},
+                {"container_id": "container-2", "ifname": "eth1"}
+            ]
+        }"#;
+
+        let conf: NetConf = serde_json::from_str(json).unwrap();
+        assert_eq!(conf.cni_version, "1.3.0");
+        assert_eq!(conf.name, "test-network");
+        assert_eq!(conf.r#type, "bridge");
+        assert!(conf.valid_attachments.is_some());
+
+        let attachments = conf.valid_attachments.unwrap();
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[0].container_id, "container-1");
+        assert_eq!(attachments[0].ifname, "eth0");
+        assert_eq!(attachments[1].container_id, "container-2");
+        assert_eq!(attachments[1].ifname, "eth1");
+
+        // Test serialization
+        let conf_with_attachments = NetConf {
+            cni_version: "1.3.0".to_string(),
+            cni_versions: None,
+            name: "test-network".to_string(),
+            r#type: "bridge".to_string(),
+            disable_check: None,
+            runtime_config: None,
+            capabilities: None,
+            ip_masq: None,
+            ipam: None,
+            dns: None,
+            args: None,
+            prev_result: None,
+            valid_attachments: Some(vec![
+                GcAttachment {
+                    container_id: "container-1".to_string(),
+                    ifname: "eth0".to_string(),
+                },
+            ]),
+            custom: HashMap::new(),
+        };
+        let serialized = serde_json::to_value(&conf_with_attachments).unwrap();
+        assert!(serialized["cni.dev/valid-attachments"].is_array());
+        assert_eq!(serialized["cni.dev/valid-attachments"][0]["container_id"], "container-1");
     }
 
     #[rstest(
@@ -632,6 +725,7 @@ mod tests {
                     ("bridge".to_string(), serde_json::Value::String("cni0".to_string())),
                     ("keyA".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("some more".to_string()), serde_json::Value::String("plugin specific".to_string()), serde_json::Value::String("configuration".to_string())])),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
@@ -660,6 +754,7 @@ mod tests {
                 args: None,
                 prev_result: None,
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
@@ -700,6 +795,7 @@ mod tests {
                 args: None,
                 prev_result: None,
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
@@ -805,6 +901,7 @@ mod tests {
                 custom: HashMap::from([
                     ("sysctl".to_string(), json!({"net.core.somaxconn": "500"})),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
@@ -913,6 +1010,7 @@ mod tests {
                   }),
                 }),
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
@@ -1021,6 +1119,7 @@ mod tests {
                   }),
                 }),
                 custom: HashMap::new(),
+                valid_attachments: None,
             },
         ),
         case(
@@ -1126,6 +1225,7 @@ mod tests {
                 custom: HashMap::from([
                     ("sysctl".to_string(), json!({"net.core.somaxconn": "500"})),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
@@ -1244,6 +1344,7 @@ mod tests {
                     ("bridge".to_string(), serde_json::Value::String("cni0".to_string())),
                     ("keyA".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("some more".to_string()), serde_json::Value::String("plugin specific".to_string()), serde_json::Value::String("configuration".to_string())])),
                 ]),
+                valid_attachments: None,
             },
         ),
         case(
@@ -1362,6 +1463,7 @@ mod tests {
                     ("keyA".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("some more".to_string()), serde_json::Value::String("plugin specific".to_string()), serde_json::Value::String("configuration".to_string())])),
                     ("bridge".to_string(), serde_json::Value::String("cni0".to_string())),
                 ]),
+                valid_attachments: None,
             },
         ),
     )]

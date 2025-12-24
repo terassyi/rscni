@@ -52,6 +52,11 @@ impl Cni for DebugConf {
     async fn status(&self, _args: Args) -> Result<(), Error> {
         Ok(())
     }
+
+    async fn gc(&self, _args: Args) -> Result<(), Error> {
+        // No cleanup needed for debug plugin
+        Ok(())
+    }
 }
 
 impl DebugConf {

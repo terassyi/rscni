@@ -30,6 +30,7 @@ use crate::{
 /// - **DEL**: Called when a container is deleted. Clean up the network interface.
 /// - **CHECK**: Called to verify that the network configuration is as expected.
 /// - **STATUS**: Called to check if the plugin is ready to service ADD requests.
+/// - **GC**: Called to clean up stale resources not in the valid attachments list.
 ///
 /// # Example
 ///
@@ -58,6 +59,11 @@ use crate::{
 ///
 ///     async fn status(&self, _args: Args) -> Result<(), Error> {
 ///         // Plugin readiness check
+///         Ok(())
+///     }
+///
+///     async fn gc(&self, _args: Args) -> Result<(), Error> {
+///         // Garbage collection logic
 ///         Ok(())
 ///     }
 /// }
@@ -146,6 +152,33 @@ pub trait Cni {
     /// - [`Error::PluginNotAvailableLimitedConnectivity`](../error/enum.Error.html#variant.PluginNotAvailableLimitedConnectivity) (code 51):
     ///   The plugin cannot service ADD requests, and existing containers may have limited connectivity.
     async fn status(&self, args: Args) -> Result<(), Error>;
+
+    /// Executes the GC (Garbage Collection) command for the CNI plugin.
+    /// <https://www.cni.dev/docs/spec/#gc-clean-up-any-stale-resources>
+    ///
+    /// The GC command provides a way for runtimes to specify the expected set of
+    /// attachments to a network. The plugin should remove any resources related to
+    /// attachments that do not exist in the provided set.
+    ///
+    /// Resources that may be cleaned up include:
+    /// - IPAM reservations
+    /// - Firewall rules
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Contains CNI parameters. For GC, only `path` and `config` are required.
+    ///   The `config.valid_attachments` field contains the list of still-valid attachments.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the GC operation fails. Plugins should generally complete
+    /// a GC action without error. If an error is encountered, the plugin should continue
+    /// removing as many resources as possible and report errors back to the runtime.
+    async fn gc(&self, args: Args) -> Result<(), Error>;
 }
 
 /// Entry point for async CNI plugins.
@@ -322,6 +355,20 @@ impl Plugin {
                 // STATUS returns no output on success
                 Ok(String::new())
             }
+            Cmd::Gc => {
+                // GC command requires CNI_COMMAND and CNI_PATH, plus config from stdin
+                let args = ArgsBuilder::<E, I>::new()
+                    .path()?
+                    .config()?
+                    .validate(cmd)?
+                    .build()?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                cni.gc(args).await?;
+                // GC returns no output on success
+                Ok(String::new())
+            }
             Cmd::Version => self.info.version(),
             Cmd::UnSet => Ok(self.info.about(self.msg.clone())),
         }
@@ -457,6 +504,10 @@ mod tests {
         }
 
         async fn status(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
+        }
+
+        async fn gc(&self, _args: Args) -> Result<(), Error> {
             Ok(())
         }
     }
