@@ -26,14 +26,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rscni = "0.1"
+rscni = "0.2"
 ```
 
 For async support, you need to enable the `async` feature and add `async-trait` and an async runtime (such as `tokio`):
 
 ```toml
 [dependencies]
-rscni = { version = "0.1", features = ["async"] }
+rscni = { version = "0.2", features = ["async"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```
