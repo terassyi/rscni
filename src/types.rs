@@ -598,8 +598,8 @@ mod tests {
     use crate::error::Error;
 
     use super::{
-        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, NetConfList,
-        PortMapping, Protocol, Route, RuntimeConf,
+        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, PortMapping,
+        Protocol, Route, RuntimeConf,
     };
 
     #[rstest]
