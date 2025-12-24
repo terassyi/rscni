@@ -448,6 +448,15 @@ pub struct Route {
     pub mtu: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advmss: Option<u32>,
+    /// Route priority (for OSes that support it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u32>,
+    /// Routing table ID (for OSes that support it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<u32>,
+    /// Route scope (for OSes that support it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<u32>,
 }
 
 /// `CNIResult` represents the Success result type.
@@ -486,10 +495,19 @@ pub struct Interface {
     pub name: String,
     /// The hardware address of the interface.
     pub mac: String,
+    /// The MTU of the interface (if applicable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtu: Option<u32>,
     /// The isolation domain reference(e.g. path to network namespace) for the interface, or empty if on the host.
     /// For interfaces created inside the container, this should be the value passes via `CNI_NETNS`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<String>,
+    /// An absolute path to a socket file corresponding to this interface, if applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub socket_path: Option<String>,
+    /// The platform-specific identifier of the PCI device corresponding to this interface, if applicable.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "pciID")]
+    pub pci_id: Option<String>,
 }
 
 /// IP assigned by the plugin.
@@ -664,17 +682,18 @@ mod tests {
             dns: None,
             args: None,
             prev_result: None,
-            valid_attachments: Some(vec![
-                GcAttachment {
-                    container_id: "container-1".to_string(),
-                    ifname: "eth0".to_string(),
-                },
-            ]),
+            valid_attachments: Some(vec![GcAttachment {
+                container_id: "container-1".to_string(),
+                ifname: "eth0".to_string(),
+            }]),
             custom: HashMap::new(),
         };
         let serialized = serde_json::to_value(&conf_with_attachments).unwrap();
         assert!(serialized["cni.dev/valid-attachments"].is_array());
-        assert_eq!(serialized["cni.dev/valid-attachments"][0]["container_id"], "container-1");
+        assert_eq!(
+            serialized["cni.dev/valid-attachments"][0]["container_id"],
+            "container-1"
+        );
     }
 
     #[rstest(
@@ -871,16 +890,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "99:88:77:66:55:44".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -889,6 +917,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -982,16 +1013,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1000,6 +1040,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1091,16 +1134,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1109,6 +1161,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1195,16 +1250,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1213,6 +1277,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1313,16 +1380,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1331,6 +1407,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1432,16 +1511,25 @@ mod tests {
                       name: "cni0".to_string(),
                       mac: "00:11:22:33:44:55".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "veth3243".to_string(),
                       mac: "55:44:33:22:11:11".to_string(),
                       sandbox: None,
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                     Interface{
                       name: "eth0".to_string(),
                       mac: "00:11:22:33:44:66".to_string(),
                       sandbox: Some("/var/run/netns/blue".to_string()),
+                      mtu: None,
+                      socket_path: None,
+                      pci_id: None,
                     },
                   ],
                   routes: vec![
@@ -1450,6 +1538,9 @@ mod tests {
                       gw: None,
                       mtu: None,
                       advmss: None,
+                      priority: None,
+                      table: None,
+                      scope: None,
                     },
                   ],
                   dns: Some(Dns{
@@ -1511,6 +1602,9 @@ mod tests {
               gw: None,
               mtu: None,
               advmss: None,
+              priority: None,
+              table: None,
+              scope: None,
             },
           ],
           dns: Some(Dns{
@@ -1561,16 +1655,25 @@ mod tests {
               name: "cni0".to_string(),
               mac: "00:11:22:33:44:55".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "veth3243".to_string(),
               mac: "55:44:33:22:11:11".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "eth0".to_string(),
               mac: "99:88:77:66:55:44".to_string(),
               sandbox: Some("/var/run/netns/blue".to_string()),
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
           ],
           ips: vec![IpConfig{
@@ -1584,6 +1687,9 @@ mod tests {
               gw: None,
               mtu: None,
               advmss: None,
+              priority: None,
+              table: None,
+              scope: None,
             },
           ],
           dns: Some(Dns{
@@ -1634,16 +1740,25 @@ mod tests {
               name: "cni0".to_string(),
               mac: "00:11:22:33:44:55".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "veth3243".to_string(),
               mac: "55:44:33:22:11:11".to_string(),
               sandbox: None,
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
             Interface{
               name: "eth0".to_string(),
               mac: "99:88:77:66:55:44".to_string(),
               sandbox: Some("/var/run/netns/blue".to_string()),
+              mtu: None,
+              socket_path: None,
+              pci_id: None,
             },
           ],
           ips: vec![IpConfig{
@@ -1657,6 +1772,9 @@ mod tests {
               gw: None,
               mtu: None,
               advmss: None,
+              priority: None,
+              table: None,
+              scope: None,
             },
           ],
           dns: Some(Dns{
@@ -1679,27 +1797,106 @@ mod tests {
     }
 
     #[rstest]
+    // Basic interface with sandbox only
     #[case(
         Interface {
             name: "eth0".to_string(),
             mac: "00:11:22:33:44:55".to_string(),
             sandbox: Some("/var/run/netns/test".to_string()),
-        },
-        true
+            mtu: None,
+            socket_path: None,
+            pci_id: None,
+        }
     )]
+    // Minimal interface without optional fields
     #[case(
         Interface {
             name: "veth0".to_string(),
             mac: "aa:bb:cc:dd:ee:ff".to_string(),
             sandbox: None,
-        },
-        false
-    )]
-    fn test_interface_serialize(#[case] interface: Interface, #[case] has_sandbox: bool) {
-        let json = serde_json::to_string(&interface).unwrap();
-        if !has_sandbox {
-            assert!(!json.contains("sandbox"));
+            mtu: None,
+            socket_path: None,
+            pci_id: None,
         }
+    )]
+    // Interface with MTU (CNI v1.1.0+)
+    #[case(
+        Interface {
+            name: "eth1".to_string(),
+            mac: "00:11:22:33:44:66".to_string(),
+            mtu: Some(1500),
+            sandbox: Some("/var/run/netns/test".to_string()),
+            socket_path: None,
+            pci_id: None,
+        }
+    )]
+    // Interface with socket_path for vhost-user (CNI v1.1.0+)
+    #[case(
+        Interface {
+            name: "tap0".to_string(),
+            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+            mtu: None,
+            sandbox: None,
+            socket_path: Some("/var/run/vhost-user/tap0.sock".to_string()),
+            pci_id: None,
+        }
+    )]
+    // Interface with PCI device ID (CNI v1.1.0+)
+    #[case(
+        Interface {
+            name: "net0".to_string(),
+            mac: "11:22:33:44:55:66".to_string(),
+            mtu: Some(9000),
+            sandbox: Some("/var/run/netns/container1".to_string()),
+            socket_path: None,
+            pci_id: Some("0000:03:00.0".to_string()),
+        }
+    )]
+    // Interface with all optional fields
+    #[case(
+        Interface {
+            name: "eth2".to_string(),
+            mac: "ff:ee:dd:cc:bb:aa".to_string(),
+            mtu: Some(1500),
+            sandbox: Some("/var/run/netns/test".to_string()),
+            socket_path: Some("/var/run/socket/eth1.sock".to_string()),
+            pci_id: Some("0000:04:00.1".to_string()),
+        }
+    )]
+    fn test_interface_serialize(#[case] interface: Interface) {
+        // Serialize to JSON
+        let json = serde_json::to_string(&interface).unwrap();
+        
+        // Verify basic fields are always present
+        assert!(json.contains(&format!("\"name\":\"{}\"", interface.name)));
+        assert!(json.contains(&format!("\"mac\":\"{}\"", interface.mac)));
+        
+        // Verify optional fields serialization with correct camelCase naming
+        if let Some(ref mtu) = interface.mtu {
+            assert!(json.contains(&format!("\"mtu\":{}", mtu)));
+        } else {
+            assert!(!json.contains("\"mtu\""));
+        }
+        
+        if let Some(ref sandbox) = interface.sandbox {
+            assert!(json.contains(&format!("\"sandbox\":\"{}\"", sandbox)));
+        } else {
+            assert!(!json.contains("\"sandbox\""));
+        }
+        
+        if let Some(ref socket_path) = interface.socket_path {
+            assert!(json.contains(&format!("\"socketPath\":\"{}\"", socket_path)));
+        } else {
+            assert!(!json.contains("\"socketPath\""));
+        }
+        
+        if let Some(ref pci_id) = interface.pci_id {
+            assert!(json.contains(&format!("\"pciID\":\"{}\"", pci_id)));
+        } else {
+            assert!(!json.contains("\"pciID\""));
+        }
+        
+        // Verify round-trip serialization
         let deserialized: Interface = serde_json::from_str(&json).unwrap();
         assert_eq!(interface, deserialized);
     }
@@ -1746,6 +1943,9 @@ mod tests {
             gw: Some("192.168.1.1".to_string()),
             mtu: Some(1500),
             advmss: Some(1460),
+            priority: None,
+            table: None,
+            scope: None,
         },
         true,
         true
@@ -1756,6 +1956,9 @@ mod tests {
             gw: None,
             mtu: None,
             advmss: None,
+            priority: None,
+            table: None,
+            scope: None,
         },
         false,
         false
@@ -1859,6 +2062,9 @@ mod tests {
                 name: "eth0".to_string(),
                 mac: "00:11:22:33:44:55".to_string(),
                 sandbox: None,
+                mtu: None,
+                socket_path: None,
+                pci_id: None,
             }],
             ips: vec![IpConfig {
                 interface: Some(0),
@@ -1870,6 +2076,9 @@ mod tests {
                 gw: Some("192.168.1.1".to_string()),
                 mtu: None,
                 advmss: None,
+                priority: None,
+                table: None,
+                scope: None,
             }],
             dns: Some(Dns {
                 nameservers: vec!["8.8.8.8".to_string()],
@@ -2062,6 +2271,9 @@ mod tests {
             gw: Some("10.1.0.1".to_string()),
             mtu: Some(1500),
             advmss: Some(1460),
+            priority: None,
+            table: None,
+            scope: None,
         },
         true,
         true
@@ -2072,6 +2284,9 @@ mod tests {
             gw: None,
             mtu: Some(9000),
             advmss: None,
+            priority: None,
+            table: None,
+            scope: None,
         },
         true,
         false

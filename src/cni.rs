@@ -486,6 +486,9 @@ mod tests {
                     name: "eth0".to_string(),
                     mac: "00:11:22:33:44:55".to_string(),
                     sandbox: Some("/var/run/netns/test".to_string()),
+                    mtu: None,
+                    socket_path: None,
+                    pci_id: None,
                 }],
                 ips: vec![IpConfig {
                     interface: Some(0),
@@ -497,6 +500,9 @@ mod tests {
                     gw: Some("10.1.0.1".to_string()),
                     mtu: None,
                     advmss: None,
+                    priority: None,
+                    table: None,
+                    scope: None,
                 }],
                 dns: Some(Dns {
                     nameservers: vec!["10.1.0.1".to_string()],
