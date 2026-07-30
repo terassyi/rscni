@@ -92,7 +92,9 @@ pub trait Cni {
     ///
     /// # Returns
     ///
-    /// Returns an empty [`CNIResult`](../types/struct.CNIResult.html) on success.
+    /// Returns a [`CNIResult`](../types/struct.CNIResult.html) for API compatibility;
+    /// the spec defines no success output for this operation, so the value is not
+    /// written to stdout.
     ///
     /// # Errors
     ///
@@ -111,7 +113,9 @@ pub trait Cni {
     ///
     /// # Returns
     ///
-    /// Returns an empty [`CNIResult`](../types/struct.CNIResult.html) on success.
+    /// Returns a [`CNIResult`](../types/struct.CNIResult.html) for API compatibility;
+    /// the spec defines no success output for this operation, so the value is not
+    /// written to stdout.
     ///
     /// # Errors
     ///
@@ -347,8 +351,10 @@ impl Plugin {
                     .validate(cmd)?
                     .build()?;
                 self.info.validate(&required_config(&args)?.cni_version)?;
-                let res = cni.del(args)?;
-                serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
+                // The spec defines no success output for DEL; the returned value is
+                // kept in the trait for API compatibility but is not written out.
+                cni.del(args)?;
+                Ok(String::new())
             }
             Cmd::Check => {
                 let args = ArgsBuilder::<E, I>::new()
@@ -361,8 +367,10 @@ impl Plugin {
                     .validate(cmd)?
                     .build()?;
                 self.info.validate(&required_config(&args)?.cni_version)?;
-                let res = cni.check(args)?;
-                serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
+                // The spec defines no success output for CHECK; the returned value is
+                // kept in the trait for API compatibility but is not written out.
+                cni.check(args)?;
+                Ok(String::new())
             }
             Cmd::Status => {
                 // STATUS command only requires CNI_PATH (optional) and config from stdin
@@ -571,7 +579,15 @@ mod tests {
         let json_output = plugin
             .inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)
             .map_err(|e| format!("Command {command} should succeed: {e}"))?;
-        assert!(!json_output.is_empty());
+        if command == "ADD" {
+            assert!(!json_output.is_empty());
+        } else {
+            // The spec defines success output only for ADD (and VERSION).
+            assert!(
+                json_output.is_empty(),
+                "{command} must produce no success output"
+            );
+        }
         Ok(())
     }
 
