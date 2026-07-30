@@ -9,7 +9,7 @@
 //! to being invoked as a plugin. A CNI runtime writes these parameters out
 //! instead of reading them, so it has no use for them.
 
-use std::{io::Read, path::PathBuf, str::FromStr};
+use std::{env, io::Read, path::PathBuf, str::FromStr};
 
 use rscni_types::{
     error::Error,
@@ -183,10 +183,10 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn path(mut self) -> Result<Self, Error> {
-        self.path = E::get::<String>(CNI_PATH)?
-            .split(':')
-            .map(PathBuf::from)
-            .collect();
+        // The separator is OS-specific (':' on Unix, ';' on Windows), which is exactly
+        // what `env::split_paths` implements; on Unix it matches a plain ':' split
+        // byte for byte, empty segments included.
+        self.path = env::split_paths(&E::get::<String>(CNI_PATH)?).collect();
         Ok(self)
     }
 
