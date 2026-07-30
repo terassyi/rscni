@@ -141,10 +141,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn container_id(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_CONTAINERID) {
-            Ok(val) => self.container_id = Some(val),
-            Err(e) => return Err(e),
-        }
+        self.container_id = Some(E::get::<String>(CNI_CONTAINERID)?);
         Ok(self)
     }
 
@@ -154,11 +151,8 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn netns(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_NETNS) {
-            // `PathBuf: FromStr` is infallible, so no decode failure to handle here.
-            Ok(val) => self.netns = Some(PathBuf::from(val)),
-            Err(e) => return Err(e),
-        }
+        // `PathBuf: FromStr` is infallible, so no decode failure to handle here.
+        self.netns = Some(PathBuf::from(E::get::<String>(CNI_NETNS)?));
         Ok(self)
     }
 
@@ -168,10 +162,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn ifname(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_IFNAME) {
-            Ok(val) => self.ifname = Some(val),
-            Err(e) => return Err(e),
-        }
+        self.ifname = Some(E::get::<String>(CNI_IFNAME)?);
         Ok(self)
     }
 
@@ -181,10 +172,8 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn args(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_ARGS) {
-            Ok(val) => self.args = if val.is_empty() { None } else { Some(val) },
-            Err(e) => return Err(e),
-        }
+        let val = E::get::<String>(CNI_ARGS)?;
+        self.args = if val.is_empty() { None } else { Some(val) };
         Ok(self)
     }
 
@@ -194,10 +183,10 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn path(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_PATH) {
-            Ok(val) => self.path = val.split(':').map(PathBuf::from).collect(),
-            Err(e) => return Err(e),
-        }
+        self.path = E::get::<String>(CNI_PATH)?
+            .split(':')
+            .map(PathBuf::from)
+            .collect();
         Ok(self)
     }
 
