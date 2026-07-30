@@ -8,8 +8,8 @@ env:
 # own name: the jobs produce different artifact kinds and feature sets, and a shared key
 # means only the first job to finish ever saves.
 jobs:
-  lint:
-    name: Lint
+  build:
+    name: Build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -33,8 +33,43 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
+          key: ${{ runner.os }}-cargo-target-build-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-build-
+      - name: Build workspace
+        run: cargo build --workspace --all-features
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    # Linting code that does not compile reports rustc errors through clippy, which is
+    # the build job's finding to make; the edge also lets this job reuse its
+    # dependency artifacts through the cache fallback below.
+    needs: build
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup rust toolchain
+        run: rustup toolchain install
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
           key: ${{ runner.os }}-cargo-target-lint-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-target-lint-
+          # Prefer a previous lint cache (it holds clippy's own artifacts); fall back to
+          # the build job's target, which shares the compiled dependencies.
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-lint-
+            ${{ runner.os }}-cargo-target-build-${{ hashFiles('Cargo.lock') }}
       - name: Run fmt
         run: cargo fmt --all -- --check
       # No separate `cargo check`: clippy type-checks the same code and reports the same
@@ -44,6 +79,7 @@ jobs:
   unit-test:
     name: Unit Test (${{ matrix.suite.name }})
     runs-on: ubuntu-24.04
+    needs: lint
     strategy:
       fail-fast: false
       # One leg per workspace crate with unit tests, and one per feature set where a
@@ -94,6 +130,9 @@ jobs:
   e2e-test:
     name: E2E Test
     runs-on: ubuntu-24.04
+    # Runs once every unit-test matrix leg is green: unit failures are cheaper to read
+    # from their own leg than from an e2e run over the same broken code.
+    needs: unit-test
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
@@ -127,9 +166,10 @@ jobs:
   package:
     name: Package
     runs-on: ubuntu-24.04
-    # Downstream of the test jobs: packaging release artifacts from code whose tests
-    # fail is never useful, and the dependency keeps the job graph honest.
-    needs: [unit-test, e2e-test]
+    # Last stage of the pipeline (build -> lint -> unit -> e2e -> package): packaging
+    # release artifacts from code whose tests fail is never useful. Depending on e2e
+    # alone is enough - it already transitively requires everything upstream.
+    needs: e2e-test
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
