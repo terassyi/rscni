@@ -273,6 +273,46 @@ fn test_del_without_netns_helper(
     Ok(())
 }
 
+/// A failing plugin must exit non-zero AND put the spec's error result structure on
+/// stdout — that JSON is what runtimes parse for diagnostics.
+fn test_error_emits_error_json_helper(
+    plugin_type: PluginType,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin_path = build_plugin(plugin_type)?;
+
+    let net_conf = format!(
+        r#"{{"cniVersion":"1.1.0","name":"test-network","type":"{}"}}"#,
+        plugin_type.name()
+    );
+
+    // ADD without CNI_NETNS is error code 4 (Invalid environment variables).
+    let (success, stdout, _stderr) = run_plugin(
+        &plugin_path,
+        Cmd::Add,
+        &net_conf,
+        "error-case-container",
+        "",
+        "eth0",
+        "",
+    )?;
+
+    assert!(!success, "ADD without CNI_NETNS must fail");
+    let error: Value = serde_json::from_str(&stdout)?;
+    assert_eq!(error["code"], 4);
+    assert!(error["cniVersion"].is_string());
+    assert!(error["msg"].is_string());
+    // The details must say which variable was missing, or the runtime's diagnostics
+    // are useless.
+    assert!(
+        error["details"]
+            .as_str()
+            .is_some_and(|d| d.contains("CNI_NETNS")),
+        "details must name the missing variable, got: {}",
+        error["details"]
+    );
+    Ok(())
+}
+
 /// Common test helper for CHECK command
 fn test_check_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std::error::Error>> {
     let plugin_path = build_plugin(plugin_type)?;
@@ -443,6 +483,11 @@ fn test_plugin_del_without_netns() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn test_plugin_error_emits_error_json() -> Result<(), Box<dyn std::error::Error>> {
+    test_error_emits_error_json_helper(PluginType::Sync)
+}
+
+#[test]
 fn test_cni_version_compatibility() -> Result<(), Box<dyn std::error::Error>> {
     test_cni_version_compatibility_helper(PluginType::Sync)
 }
@@ -476,6 +521,11 @@ fn test_async_plugin_check_command() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_async_plugin_del_without_netns() -> Result<(), Box<dyn std::error::Error>> {
     test_del_without_netns_helper(PluginType::Async)
+}
+
+#[test]
+fn test_async_plugin_error_emits_error_json() -> Result<(), Box<dyn std::error::Error>> {
+    test_error_emits_error_json_helper(PluginType::Async)
 }
 
 #[test]

@@ -2,7 +2,7 @@ use std::io::Write;
 
 use rscni_types::{
     error::Error,
-    types::{CNIResult, CNIResultWithCNIVersion, Cmd},
+    types::{CNIResult, CNIResultWithCNIVersion, Cmd, ErrorResult},
     version::PluginInfo,
 };
 
@@ -303,11 +303,22 @@ impl Plugin {
     /// }
     /// ```
     pub fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
-        let res = self.inner_run::<T, OsEnv, StdIo>(cni)?;
-
-        StdIo::io_out()
-            .write_all(res.as_bytes())
-            .map_err(|e| Error::IOFailure(e.to_string()))
+        match self.inner_run::<T, OsEnv, StdIo>(cni) {
+            Ok(res) => StdIo::io_out()
+                .write_all(res.as_bytes())
+                .map_err(|e| Error::IOFailure(e.to_string())),
+            Err(err) => {
+                // The spec requires a failing plugin to put the error result structure
+                // on stdout alongside the non-zero exit; that JSON is what runtimes
+                // (libcni included) parse for diagnostics. Emission is best-effort — the
+                // original error is what the caller must see either way.
+                let error_result = ErrorResult::new(self.info.cni_version(), &err);
+                if let Ok(json) = serde_json::to_string(&error_result) {
+                    let _ = StdIo::io_out().write_all(json.as_bytes());
+                }
+                Err(err)
+            }
+        }
     }
 
     fn inner_run<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<String, Error> {
