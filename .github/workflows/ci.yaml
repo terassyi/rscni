@@ -14,10 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+        # No-arg install resolves rust-toolchain.toml — the same pin rustup uses
+        # locally — including its components and profile.
+        run: rustup toolchain install
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -48,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -88,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:

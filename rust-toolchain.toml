@@ -1,0 +1,11 @@
+# Pins the toolchain for everyone — rustup picks this up locally and CI installs the
+# same pin — so "works here, fails in CI" toolchain skew cannot happen. clippy gains
+# lints on minor releases and CI denies warnings, so a floating `stable` means PRs break
+# on rustc release days instead of when we choose to bump this.
+#
+# Bumping: update `channel`, run `just lint && just test`, fix what the new clippy
+# flags, and land it all in one PR.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

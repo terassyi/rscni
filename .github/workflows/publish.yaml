@@ -36,7 +36,7 @@ jobs:
           ref: ${{ inputs.crate }}-v${{ inputs.version }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install
 
       # The root manifest is virtual and holds no version, so ask cargo which version
       # the named crate actually declares.
