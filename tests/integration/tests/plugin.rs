@@ -179,6 +179,8 @@ fn test_add_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std::e
     // Verify result
     let result: Value = serde_json::from_str(&stdout)?;
     assert!(result.is_object(), "Result should be a JSON object");
+    // The spec: the ADD result must carry the cniVersion supplied on input.
+    assert_eq!(result["cniVersion"], "1.1.0");
 
     // Verify debug file was created
     let debug_file = output_dir.join(format!("{container_id}-Add"));
