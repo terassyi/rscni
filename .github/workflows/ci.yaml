@@ -128,6 +128,11 @@ jobs:
         run: cargo test --package ${{ matrix.suite.crate }} --lib ${{ matrix.suite.flags }}
       - name: Test documents
         run: cargo test --package ${{ matrix.suite.crate }} --doc ${{ matrix.suite.flags }}
+  # Last stage of the pipeline (build -> lint -> unit -> e2e). The publish dry-run
+  # (`cargo package`) deliberately does NOT run here: it verifies each crate against
+  # the versions on crates.io, so it can only be meaningful once versions are bumped
+  # for a release — on a development PR it would force version bumps the moment a
+  # crate starts using unpublished API of a sibling. release.yaml runs it at tag time.
   e2e-test:
     name: E2E Test
     runs-on: ubuntu-24.04
@@ -164,39 +169,3 @@ jobs:
       # the `rscni` 0.3.0 facade to the module paths 0.2.x exposed.
       - name: Test end to end
         run: cargo test --package integration-tests
-  package:
-    name: Package
-    runs-on: ubuntu-24.04
-    # Last stage of the pipeline (build -> lint -> unit -> e2e -> package): packaging
-    # release artifacts from code whose tests fail is never useful. Depending on e2e
-    # alone is enough - it already transitively requires everything upstream.
-    needs: e2e-test
-    steps:
-      - uses: actions/checkout@v6
-      - name: Setup rust toolchain
-        run: rustup toolchain install
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-registry-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-index-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-target-package-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-target-package-
-      # Catches a path dependency missing a `version`, or a file that would not ship.
-      #
-      # All three in one invocation: cargo verifies each packaged crate against the
-      # others it just built. Packaging rscni-plugin on its own fails until rscni-types
-      # is actually published, so per-crate invocations cannot gate a PR.
-      - name: Dry-run package
-        run: cargo package -p rscni-types -p rscni-plugin -p rscni
