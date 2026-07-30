@@ -36,9 +36,8 @@ pub(crate) fn required_config(args: &Args) -> Result<&NetConf, Error> {
 
 /// Reads the `CNI_COMMAND` environment variable.
 ///
-/// `Ok(None)` means the variable is set but empty — the plugin prints its about text in
-/// that case, so emptiness is not an error here even though [`Cmd`]'s `FromStr` rejects
-/// it. A missing variable is still an error, exactly as it always was.
+/// `Ok(None)` means the variable is unset or empty; the dispatcher decides what absence
+/// means (help text on stderr plus error code 4).
 ///
 /// This is a free function rather than an inherent method on [`Cmd`] because `Cmd`
 /// lives in `rscni-types`, which knows nothing about [`Env`].
@@ -48,11 +47,7 @@ pub(crate) fn required_config(args: &Args) -> Result<&NetConf, Error> {
 // API the day `mod args` becomes public, so the narrower marker is kept deliberately.
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn cmd_from_env<E: Env>() -> Result<Option<Cmd>, Error> {
-    let raw = E::get::<String>(CNI_COMMAND)?;
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    Cmd::from_str(&raw).map(Some)
+    E::get::<String>(CNI_COMMAND)?.map_or(Ok(None), |raw| Cmd::from_str(&raw).map(Some))
 }
 
 /// Args is input data for the CNI call.
@@ -151,11 +146,14 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
 
     /// Reads container ID from the `CNI_CONTAINERID` environment variable.
     ///
+    /// An unset or empty variable leaves the field `None`; whether that is acceptable
+    /// depends on the command and is decided by [`Self::validate`].
+    ///
     /// # Errors
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn container_id(mut self) -> Result<Self, Error> {
-        self.container_id = Some(E::get::<String>(CNI_CONTAINERID)?);
+        self.container_id = E::get::<String>(CNI_CONTAINERID)?;
         Ok(self)
     }
 
@@ -166,7 +164,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn netns(mut self) -> Result<Self, Error> {
         // `PathBuf: FromStr` is infallible, so no decode failure to handle here.
-        self.netns = Some(PathBuf::from(E::get::<String>(CNI_NETNS)?));
+        self.netns = E::get::<String>(CNI_NETNS)?.map(PathBuf::from);
         Ok(self)
     }
 
@@ -176,7 +174,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn ifname(mut self) -> Result<Self, Error> {
-        self.ifname = Some(E::get::<String>(CNI_IFNAME)?);
+        self.ifname = E::get::<String>(CNI_IFNAME)?;
         Ok(self)
     }
 
@@ -186,8 +184,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable is set but cannot be read properly.
     pub fn args(mut self) -> Result<Self, Error> {
-        let val = E::get::<String>(CNI_ARGS)?;
-        self.args = if val.is_empty() { None } else { Some(val) };
+        self.args = E::get::<String>(CNI_ARGS)?;
         Ok(self)
     }
 
@@ -200,7 +197,9 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         // The separator is OS-specific (':' on Unix, ';' on Windows), which is exactly
         // what `env::split_paths` implements; on Unix it matches a plain ':' split
         // byte for byte, empty segments included.
-        self.path = env::split_paths(&E::get::<String>(CNI_PATH)?).collect();
+        self.path = E::get::<String>(CNI_PATH)?
+            .map(|v| env::split_paths(&v).collect())
+            .unwrap_or_default();
         Ok(self)
     }
 
@@ -222,17 +221,25 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         Ok(self)
     }
 
-    /// Validates required fields based on the CNI command.
+    /// Validates required fields based on the CNI command, following the spec's
+    /// required/optional environment parameter matrix:
+    ///
+    /// | command | required |
+    /// |---|---|
+    /// | ADD, CHECK | `CNI_CONTAINERID`, `CNI_NETNS`, `CNI_IFNAME` |
+    /// | DEL | `CNI_CONTAINERID`, `CNI_IFNAME` — `CNI_NETNS` is optional, because the
+    ///   spec requires DEL to complete even after the namespace is gone |
+    /// | GC | `CNI_PATH` |
+    /// | STATUS, VERSION | nothing |
+    ///
+    /// `CNI_ARGS` is optional everywhere, and `CNI_PATH` everywhere but GC.
     ///
     /// # Errors
     ///
-    /// Returns an error if required fields are missing for the given command:
-    /// - `ADD`/`DEL`/`CHECK` commands require `container_id` and `ifname`
-    /// - `GC` command requires `path` (`CNI_PATH`)
+    /// Returns an error if a required field is missing for the given command.
     pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
         match cmd {
-            Cmd::Add | Cmd::Del | Cmd::Check => {
-                // These commands require container_id and ifname
+            Cmd::Add | Cmd::Check | Cmd::Del => {
                 if self.container_id.is_none() {
                     return Err(Error::InvalidEnvValue(
                         "CNI_CONTAINERID is required for ADD/DEL/CHECK commands".to_string(),
@@ -241,6 +248,11 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
                 if self.ifname.is_none() {
                     return Err(Error::InvalidEnvValue(
                         "CNI_IFNAME is required for ADD/DEL/CHECK commands".to_string(),
+                    ));
+                }
+                if self.netns.is_none() && !matches!(cmd, Cmd::Del) {
+                    return Err(Error::InvalidEnvValue(
+                        "CNI_NETNS is required for ADD/CHECK commands".to_string(),
                     ));
                 }
             }

@@ -34,7 +34,14 @@ pub fn about_text(info: &PluginInfo, msg: Option<String>) -> String {
 }
 
 pub trait Env {
-    fn get<T>(name: &str) -> Result<T, Error>
+    /// Reads an environment variable.
+    ///
+    /// Returns `Ok(None)` when the variable is unset **or set to the empty string** —
+    /// the specification's reference implementation treats the two identically, and
+    /// which variables may be absent depends on the operation, so presence is the
+    /// caller's decision, not this trait's. `Err` is reserved for values that exist
+    /// but cannot be used (non-unicode, parse failure).
+    fn get<T>(name: &str) -> Result<Option<T>, Error>
     where
         T: FromStr,
         T::Err: std::error::Error + 'static;
@@ -43,19 +50,20 @@ pub trait Env {
 pub struct OsEnv;
 
 impl Env for OsEnv {
-    /// This function returns the environment value.
-    /// If the value doesn't exist or is invalid, this returns [`Error::InvalidEnvValue`].
-    fn get<T>(name: &str) -> Result<T, Error>
+    fn get<T>(name: &str) -> Result<Option<T>, Error>
     where
         T: FromStr,
         T::Err: std::error::Error + 'static,
     {
-        std::env::var(name)
-            .map_err(|e| Error::InvalidEnvValue(e.to_string()))
-            .and_then(|v| {
-                v.parse()
-                    .map_err(|e: T::Err| Error::InvalidEnvValue(e.to_string()))
-            })
+        match std::env::var(name) {
+            Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(e) => Err(Error::InvalidEnvValue(e.to_string())),
+            Ok(v) if v.is_empty() => Ok(None),
+            Ok(v) => v
+                .parse()
+                .map(Some)
+                .map_err(|e: T::Err| Error::InvalidEnvValue(e.to_string())),
+        }
     }
 }
 
