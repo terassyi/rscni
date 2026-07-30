@@ -1,15 +1,18 @@
-# Default recipe - runs all checks and tests
-default: build build-examples
+# Default recipe - builds every crate, examples included
+default: build
+
+# No `check` here: clippy type-checks everything cargo check does, so running both
+# compiles the workspace twice for one set of diagnostics.
 
 # Run all lint checks
-lint: check fmt clippy
+lint: fmt clippy
 
 # Run all tests
 test: unit-test doc-test integration-test
 
 # Check if the code compiles with all features
 check:
-    cargo check --all-features
+    cargo check --workspace --all-features
 
 # Check code formatting
 fmt:
@@ -17,37 +20,39 @@ fmt:
 
 # Run clippy lints
 clippy:
-    cargo clippy --all-features -- -D warnings
+    cargo clippy --workspace --all-features --all-targets -- -D warnings
 
-# Run clippy with auto-fixes
-clippy-fix:
-    cargo clippy --all-features --fix
+# Once with default features, once with everything, so the feature-gated code is covered
+# both ways. `--workspace` rather than a list of `--package` flags, so a new crate is
+# picked up without editing this.
 
-# Test the library with default features
+# Test every crate's library
 unit-test:
-    cargo test --lib
-    cargo test --lib --features async
+    cargo test --workspace --lib
+    cargo test --workspace --lib --all-features
 
 # Test the documentation examples
 doc-test:
-    cargo test --doc
+    cargo test --workspace --doc --all-features
+
+# Run cross-crate integration tests
+integration-test:
+    cargo test --package integration-tests
+
+# One invocation, not one per package: separate invocations resolve rscni-plugin under
+# different feature sets and rebuild it each time.
 
 # Build example plugins
 build-examples:
-    cargo build --package rscni-debug
-    cargo build --package async-rscni-debug
-
-# Run plugin integration tests
-integration-test:
-    cargo test --test plugin_integration_test
+    cargo build --package rscni-debug --package async-rscni-debug
 
 # Build all packages
 build:
-    cargo build --all
+    cargo build --workspace
 
 # Build with release profile
 build-release:
-    cargo build --all --release
+    cargo build --workspace --release
 
 # Clean build artifacts
 clean:
@@ -55,8 +60,20 @@ clean:
 
 # Generate documentation
 doc:
-    cargo doc --all-features
+    cargo doc --workspace --all-features
+
+# All three in one invocation, not one each: cargo then verifies each packaged crate
+# against the others it just built. Packaging rscni-plugin alone fails until rscni-types
+# is actually on crates.io.
+
+# Verify the publishable crates package cleanly
+package:
+    cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
+
+# The manual kind cluster walkthrough for the example plugins. Kept out of this file
+# because it needs docker and kind and never runs in CI, unlike everything above.
+mod examples 'rscni/examples'
 
 # Show help
 help:
-    @just --list
+    @just --list --list-submodules

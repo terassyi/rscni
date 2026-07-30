@@ -1,6 +1,8 @@
+//! Plugin version reporting and negotiation.
+
 use serde::{Deserialize, Serialize};
 
-use super::error::Error;
+use crate::error::Error;
 
 /// `PluginInfo` is for supported CNI plugin version information.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#version>.
@@ -37,20 +39,29 @@ impl Default for PluginInfo {
 }
 
 impl PluginInfo {
-    pub(crate) fn version(&self) -> Result<String, Error> {
-        serde_json::to_string(self).map_err(|e| Error::FailedToDecode(e.to_string()))
+    /// Returns the CNI specification version this plugin reports as its own.
+    #[must_use]
+    pub fn cni_version(&self) -> &str {
+        &self.cni_version
     }
 
-    pub(crate) fn about(&self, msg: Option<String>) -> String {
-        let versions = self.supported_versions.join(", ");
-        msg.map_or_else(
-            || format!("CNI protocol versions supported: {versions}"),
-            |msg| format!("{msg}\nCNI protocol versions supported: {versions}"),
-        )
+    /// Returns every CNI specification version this plugin can be asked to speak.
+    #[must_use]
+    pub fn supported_versions(&self) -> &[String] {
+        &self.supported_versions
     }
 
-    // Version considerations
-    pub(crate) fn validate(&self, ver: &str) -> Result<(), Error> {
+    /// Checks that `ver` is a version this plugin can speak.
+    ///
+    /// A runtime uses this against the [`PluginInfo`] it got back from `VERSION` to
+    /// confirm a plugin can handle the `cniVersion` in a network configuration before
+    /// invoking it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::IncompatibleVersion`] if `ver` is neither this plugin's own
+    /// version nor one of its supported versions.
+    pub fn validate(&self, ver: &str) -> Result<(), Error> {
         if self.cni_version.eq(ver) {
             return Ok(());
         }

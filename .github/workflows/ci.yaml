@@ -2,6 +2,11 @@ name: CI
 on: [pull_request]
 env:
   CARGO_TERM_COLOR: always
+
+# The cargo cache steps are repeated per job because composite actions are the only way
+# to share them and they are not worth one here. Each job keys its `target` cache on its
+# own name: the jobs produce different artifact kinds (clippy .rmeta vs test binaries vs
+# package verification), and a shared key means only the first job to finish ever saves.
 jobs:
   lint:
     name: Lint
@@ -17,23 +22,26 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run Check
-        run: cargo check --all-features
+          key: ${{ runner.os }}-cargo-target-lint-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-lint-
       - name: Run fmt
         run: cargo fmt --all -- --check
+      # No separate `cargo check`: clippy type-checks the same code and reports the same
+      # rustc diagnostics, so running both compiles the workspace twice.
       - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
   test:
     name: Test
     runs-on: ubuntu-24.04
@@ -45,26 +53,64 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      - name: Test rscni library (default features)
-        run: cargo test --lib
-      - name: Test rscni library (with async feature)
-        run: cargo test --lib --features async
-      - name: Test rscni documents
-        run: cargo test --doc
+          key: ${{ runner.os }}-cargo-target-test-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-test-
+      # `--workspace` rather than a `--package` per crate, so a crate added later is
+      # covered without editing this. Run twice so feature-gated code is tested both
+      # with and without its features.
+      - name: Test libraries (default features)
+        run: cargo test --workspace --lib
+      - name: Test libraries (all features)
+        run: cargo test --workspace --lib --all-features
+      - name: Test documents
+        run: cargo test --workspace --doc --all-features
       - name: Build debug plugins
-        run: |
-          cargo build --package rscni-debug
-          cargo build --package async-rscni-debug
-      - name: Test plugin integration
-        run: cargo test --test plugin_integration_test
+        run: cargo build --package rscni-debug --package async-rscni-debug
+      # Drives the example plugin binaries, and pins the `rscni` 0.3.0 facade to the
+      # module paths 0.2.x exposed.
+      - name: Test cross-crate integration
+        run: cargo test --package integration-tests
+  package:
+    name: Package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-package-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-package-
+      # Catches a path dependency missing a `version`, or a file that would not ship.
+      #
+      # All three in one invocation: cargo verifies each packaged crate against the
+      # others it just built. Packaging rscni-plugin on its own fails until rscni-types
+      # is actually published, so per-crate invocations cannot gate a PR.
+      - name: Dry-run package
+        run: cargo package -p rscni-types -p rscni-plugin -p rscni

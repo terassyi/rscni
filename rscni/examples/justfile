@@ -1,0 +1,25 @@
+# Trying the debug plugin in a real kind cluster.
+#
+# Manual only — it needs docker and kind, and nothing here runs in CI. The workspace's
+# build, test and release recipes live in the justfile at the repository root.
+#
+# Run from this directory, or as `just examples::<recipe>` from the root.
+
+# Both plugins install as /opt/cni/bin/rscni-debug, which is the `type` netconf.json
+# chains to, so either can be swapped in without touching the configuration.
+default_plugin := "rscni-debug"
+
+# Start a kind cluster with the debug plugin chained in
+kind-up BIN=default_plugin:
+    cargo build --release --package {{ BIN }}
+    kind create cluster
+    docker cp ../../target/release/{{ BIN }} kind-control-plane:/opt/cni/bin/rscni-debug
+    docker cp netconf.json kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
+
+# Show the CNI output the debug plugin captured in the kind cluster
+kind-output:
+    docker exec kind-control-plane sh -c 'ls /tmp/cni && cat /tmp/cni/*-Add'
+
+# Tear the kind cluster down
+kind-down:
+    kind delete cluster

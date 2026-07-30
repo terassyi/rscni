@@ -5,40 +5,54 @@
 //!
 //! # Main Types
 //!
-//! - [`Args`] - Input parameters for CNI operations (from environment and stdin)
 //! - [`NetConf`] - Network configuration passed to the plugin
+//! - [`NetConfList`] - A chain of network configurations (`.conflist`)
 //! - [`CNIResult`] - Result returned by ADD/DEL/CHECK operations
 //! - [`Interface`], [`IpConfig`], [`Route`] - Components of the CNI result
 //! - [`Dns`], [`Ipam`] - Network configuration components
+//! - [`Cmd`] - The operation being requested, i.e. the value of `CNI_COMMAND`
 //!
 
-use std::{collections::HashMap, io::Read, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{
-    error::Error,
-    util::{Env, Io},
-};
+use crate::error::Error;
 
-pub(super) const CNI_COMMAND: &str = "CNI_COMMAND";
-pub(super) const CNI_CONTAINERID: &str = "CNI_CONTAINERID";
-pub(super) const CNI_NETNS: &str = "CNI_NETNS";
-pub(super) const CNI_IFNAME: &str = "CNI_IFNAME";
-pub(super) const CNI_ARGS: &str = "CNI_ARGS";
-pub(super) const CNI_PATH: &str = "CNI_PATH";
+/// Name of the environment variable carrying the requested operation. See [`Cmd`].
+pub const CNI_COMMAND: &str = "CNI_COMMAND";
+/// Name of the environment variable carrying the container ID.
+pub const CNI_CONTAINERID: &str = "CNI_CONTAINERID";
+/// Name of the environment variable carrying the network namespace path.
+pub const CNI_NETNS: &str = "CNI_NETNS";
+/// Name of the environment variable carrying the interface name.
+pub const CNI_IFNAME: &str = "CNI_IFNAME";
+/// Name of the environment variable carrying extra `key=value;…` arguments.
+pub const CNI_ARGS: &str = "CNI_ARGS";
+/// Name of the environment variable carrying the plugin search path list.
+pub const CNI_PATH: &str = "CNI_PATH";
 
+/// The CNI operation being requested, i.e. the value of the [`CNI_COMMAND`]
+/// environment variable.
+///
+/// There is deliberately no "unset" variant: an empty or missing `CNI_COMMAND` is not an
+/// operation, so [`FromStr`] rejects `""` and callers decide what absence means (a plugin
+/// prints its about text; a runtime always sets the variable).
+///
+/// Marked `#[non_exhaustive]` because the CNI specification has grown new operations
+/// before (GC and STATUS arrived in v1.1.0) and adding one must not be a breaking change.
+///
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Cmd {
+#[non_exhaustive]
+pub enum Cmd {
     Add,
     Del,
     Check,
     Gc,
     Status,
     Version,
-    /// Unset state when `CNI_COMMAND` is not set.
-    UnSet,
 }
 
 impl FromStr for Cmd {
@@ -52,7 +66,7 @@ impl FromStr for Cmd {
             "GC" => Ok(Self::Gc),
             "STATUS" => Ok(Self::Status),
             "VERSION" => Ok(Self::Version),
-            "" => Ok(Self::UnSet),
+            "" => Err(Error::InvalidEnvValue("CNI_COMMAND is not set".to_string())),
             _ => Err(Error::InvalidEnvValue(format!("unknown CNI_COMMAND: {s}"))),
         }
     }
@@ -67,255 +81,7 @@ impl From<Cmd> for &str {
             Cmd::Gc => "GC",
             Cmd::Status => "STATUS",
             Cmd::Version => "VERSION",
-            Cmd::UnSet => "",
         }
-    }
-}
-
-impl Cmd {
-    pub(super) fn get_from_env<E: Env>() -> Result<Self, Error> {
-        Self::from_str(&E::get::<String>(CNI_COMMAND)?)
-    }
-}
-
-/// Args is input data for the CNI call.
-///
-/// All fields except for `config` are given as environment values.
-/// `config` field is given as a JSON format data([`NetConf`]) from stdin.
-/// Depending on the type of command, some fields are omitted.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
-#[derive(Debug, Default, Clone)]
-pub struct Args {
-    /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
-    /// Must not be empty.
-    /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
-    container_id: Option<String>,
-    /// A reference to the container's "isolation domain".
-    /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
-    netns: Option<PathBuf>,
-    /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    ifname: Option<String>,
-    /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
-    #[allow(clippy::struct_field_names)]
-    args: Option<String>,
-    /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
-    path: Vec<PathBuf>,
-    /// Please see [`NetConf`].
-    config: Option<NetConf>,
-}
-
-impl Args {
-    /// Returns the container ID if present.
-    #[must_use]
-    pub fn container_id(&self) -> Option<&str> {
-        self.container_id.as_deref()
-    }
-
-    /// Returns the network namespace path if present.
-    #[must_use]
-    pub const fn netns(&self) -> Option<&PathBuf> {
-        self.netns.as_ref()
-    }
-
-    /// Returns the interface name if present.
-    #[must_use]
-    pub fn ifname(&self) -> Option<&str> {
-        self.ifname.as_deref()
-    }
-
-    /// Returns the extra arguments if present.
-    #[must_use]
-    pub fn args(&self) -> Option<&str> {
-        self.args.as_deref()
-    }
-
-    /// Returns the list of CNI plugin paths.
-    #[must_use]
-    pub fn path(&self) -> &[PathBuf] {
-        &self.path
-    }
-
-    /// Returns the network configuration if present.
-    #[must_use]
-    pub const fn config(&self) -> Option<&NetConf> {
-        self.config.as_ref()
-    }
-}
-
-/// Builder for constructing `Args` instances.
-#[derive(Debug)]
-pub struct ArgsBuilder<E: Env, I: Io> {
-    container_id: Option<String>,
-    netns: Option<PathBuf>,
-    ifname: Option<String>,
-    #[allow(clippy::struct_field_names)]
-    args: Option<String>,
-    path: Vec<PathBuf>,
-    config: Option<NetConf>,
-    _phantom_e: std::marker::PhantomData<E>,
-    _phantom_i: std::marker::PhantomData<I>,
-}
-
-impl<E: Env, I: Io> ArgsBuilder<E, I> {
-    /// Creates a new `ArgsBuilder`.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            container_id: None,
-            netns: None,
-            ifname: None,
-            args: None,
-            path: Vec::new(),
-            config: None,
-            _phantom_e: std::marker::PhantomData,
-            _phantom_i: std::marker::PhantomData,
-        }
-    }
-
-    /// Reads container ID from the `CNI_CONTAINERID` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn container_id(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_CONTAINERID) {
-            Ok(val) => self.container_id = Some(val),
-            Err(e) => return Err(e),
-        }
-        Ok(self)
-    }
-
-    /// Reads network namespace from the `CNI_NETNS` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn netns(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_NETNS) {
-            Ok(val) => {
-                self.netns = PathBuf::from_str(&val)
-                    .map_err(|e| Error::FailedToDecode(e.to_string()))
-                    .ok();
-            }
-            Err(e) => return Err(e),
-        }
-        Ok(self)
-    }
-
-    /// Reads interface name from the `CNI_IFNAME` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn ifname(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_IFNAME) {
-            Ok(val) => self.ifname = Some(val),
-            Err(e) => return Err(e),
-        }
-        Ok(self)
-    }
-
-    /// Reads extra arguments from the `CNI_ARGS` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn args(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_ARGS) {
-            Ok(val) => self.args = if val.is_empty() { None } else { Some(val) },
-            Err(e) => return Err(e),
-        }
-        Ok(self)
-    }
-
-    /// Reads CNI plugin paths from the `CNI_PATH` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn path(mut self) -> Result<Self, Error> {
-        match E::get::<String>(CNI_PATH) {
-            Ok(val) => self.path = val.split(':').map(PathBuf::from).collect(),
-            Err(e) => return Err(e),
-        }
-        Ok(self)
-    }
-
-    /// Reads network configuration from stdin.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Failed to read from stdin
-    /// - Failed to parse JSON configuration
-    pub fn config(mut self) -> Result<Self, Error> {
-        let mut buf = String::new();
-        I::io_in()
-            .read_to_string(&mut buf)
-            .map_err(|e| Error::IOFailure(e.to_string()))?;
-
-        self.config =
-            serde_json::from_str(&buf).map_err(|e| Error::FailedToDecode(e.to_string()))?;
-        Ok(self)
-    }
-
-    /// Validates required fields based on the CNI command.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if required fields are missing for the given command:
-    /// - `ADD`/`DEL`/`CHECK` commands require `container_id` and `ifname`
-    /// - `GC` command requires `path` (`CNI_PATH`)
-    pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
-        match cmd {
-            Cmd::Add | Cmd::Del | Cmd::Check => {
-                // These commands require container_id and ifname
-                if self.container_id.is_none() {
-                    return Err(Error::InvalidEnvValue(
-                        "CNI_CONTAINERID is required for ADD/DEL/CHECK commands".to_string(),
-                    ));
-                }
-                if self.ifname.is_none() {
-                    return Err(Error::InvalidEnvValue(
-                        "CNI_IFNAME is required for ADD/DEL/CHECK commands".to_string(),
-                    ));
-                }
-            }
-            Cmd::Gc => {
-                // GC command requires CNI_PATH
-                if self.path.is_empty() {
-                    return Err(Error::InvalidEnvValue(
-                        "CNI_PATH is required for GC command".to_string(),
-                    ));
-                }
-            }
-            Cmd::Status | Cmd::Version | Cmd::UnSet => {
-                // These commands don't require container-specific parameters
-            }
-        }
-        Ok(self)
-    }
-
-    /// Builds the `Args` instance.
-    ///
-    /// # Errors
-    ///
-    /// This function currently always returns `Ok`, but returns `Result` for API consistency.
-    pub fn build(self) -> Result<Args, Error> {
-        Ok(Args {
-            container_id: self.container_id,
-            netns: self.netns,
-            ifname: self.ifname,
-            args: self.args,
-            path: self.path,
-            config: self.config,
-        })
-    }
-}
-
-impl<E: Env, I: Io> Default for ArgsBuilder<E, I> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -554,9 +320,14 @@ pub enum Protocol {
 
 /// `ErrorResult` is converted from Error.
 /// This is actual data structure of Error CNI Result Type.
+///
+/// This is the read side of the CNI error protocol: a runtime deserializes it from a
+/// failed plugin's stdout and converts it with `Error::from(&result)`. There is no
+/// public constructor yet because nothing in this workspace *produces* the error JSON —
+/// when the plugin side grows that emit path, it gets a constructor along with it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ErrorResult {
+pub struct ErrorResult {
     /// The same value as provided by the configuration.
     pub(crate) cni_version: String,
     /// A numeric error code.
@@ -609,19 +380,22 @@ mod tests {
     #[case("GC", Cmd::Gc)]
     #[case("STATUS", Cmd::Status)]
     #[case("VERSION", Cmd::Version)]
-    #[case("", Cmd::UnSet)]
-    fn test_cmd_from_str(#[case] input: &str, #[case] expected: Cmd) {
-        let result = Cmd::from_str(input);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+    fn test_cmd_from_str(
+        #[case] input: &str,
+        #[case] expected: Cmd,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(Cmd::from_str(input)?, expected);
+        Ok(())
     }
 
-    #[test]
-    fn test_cmd_from_str_invalid() {
-        let result = Cmd::from_str("INVALID");
+    #[rstest]
+    #[case("INVALID", "unknown CNI_COMMAND")]
+    #[case("", "CNI_COMMAND is not set")]
+    fn test_cmd_from_str_invalid(#[case] input: &str, #[case] expected_msg: &str) {
+        let result = Cmd::from_str(input);
         assert!(result.is_err());
         if let Err(Error::InvalidEnvValue(msg)) = result {
-            assert!(msg.contains("unknown CNI_COMMAND"));
+            assert!(msg.contains(expected_msg));
         } else {
             panic!("Expected InvalidEnvValue error");
         }
@@ -633,29 +407,29 @@ mod tests {
     #[case(Cmd::Check, "CHECK")]
     #[case(Cmd::Gc, "GC")]
     #[case(Cmd::Version, "VERSION")]
-    #[case(Cmd::UnSet, "")]
     fn test_cmd_to_str(#[case] cmd: Cmd, #[case] expected: &str) {
         let result: &str = cmd.into();
         assert_eq!(result, expected);
     }
 
     #[test]
-    fn test_gc_attachment_serialize() {
+    fn test_gc_attachment_serialize() -> Result<(), Box<dyn std::error::Error>> {
         let attachment = GcAttachment {
             container_id: "container-123".to_string(),
             ifname: "eth0".to_string(),
         };
-        let json = serde_json::to_string(&attachment).unwrap();
+        let json = serde_json::to_string(&attachment)?;
         let expected = r#"{"container_id":"container-123","ifname":"eth0"}"#;
         assert_eq!(json, expected);
 
-        let deserialized: GcAttachment = serde_json::from_str(&json).unwrap();
+        let deserialized: GcAttachment = serde_json::from_str(&json)?;
         assert_eq!(deserialized.container_id, "container-123");
         assert_eq!(deserialized.ifname, "eth0");
+        Ok(())
     }
 
     #[test]
-    fn test_net_conf_with_valid_attachments() {
+    fn test_net_conf_with_valid_attachments() -> Result<(), Box<dyn std::error::Error>> {
         let json = r#"{
             "cniVersion": "1.3.0",
             "name": "test-network",
@@ -666,13 +440,13 @@ mod tests {
             ]
         }"#;
 
-        let conf: NetConf = serde_json::from_str(json).unwrap();
+        let conf: NetConf = serde_json::from_str(json)?;
         assert_eq!(conf.cni_version, "1.3.0");
         assert_eq!(conf.name, "test-network");
         assert_eq!(conf.r#type, "bridge");
-        assert!(conf.valid_attachments.is_some());
-
-        let attachments = conf.valid_attachments.unwrap();
+        let attachments = conf
+            .valid_attachments
+            .ok_or("validAttachments should be present")?;
         assert_eq!(attachments.len(), 2);
         assert_eq!(attachments[0].container_id, "container-1");
         assert_eq!(attachments[0].ifname, "eth0");
@@ -699,12 +473,13 @@ mod tests {
             }]),
             custom: HashMap::new(),
         };
-        let serialized = serde_json::to_value(&conf_with_attachments).unwrap();
+        let serialized = serde_json::to_value(&conf_with_attachments)?;
         assert!(serialized["cni.dev/valid-attachments"].is_array());
         assert_eq!(
             serialized["cni.dev/valid-attachments"][0]["container_id"],
             "container-1"
         );
+        Ok(())
     }
 
     #[rstest(
@@ -1569,14 +1344,18 @@ mod tests {
             },
         ),
     )]
-    fn deserialize_and_serialize_net_conf(input: String, expected: NetConf) {
-        let conf: NetConf = serde_json::from_str(&input).unwrap();
+    fn deserialize_and_serialize_net_conf(
+        input: String,
+        expected: NetConf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let conf: NetConf = serde_json::from_str(&input)?;
         assert_eq!(expected, conf);
 
-        let data = serde_json::to_string_pretty(&conf).unwrap();
+        let data = serde_json::to_string_pretty(&conf)?;
 
-        let conf_again: NetConf = serde_json::from_str(&data).unwrap();
+        let conf_again: NetConf = serde_json::from_str(&data)?;
         assert_eq!(expected, conf_again);
+        Ok(())
     }
 
     #[rstest(
@@ -1797,14 +1576,18 @@ mod tests {
         },
       ),
     )]
-    fn deserialize_and_serialize_success_result(input: String, expected: CNIResult) {
-        let result: CNIResult = serde_json::from_str(&input).unwrap();
+    fn deserialize_and_serialize_success_result(
+        input: String,
+        expected: CNIResult,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let result: CNIResult = serde_json::from_str(&input)?;
         assert_eq!(expected, result);
 
-        let data = serde_json::to_string_pretty(&result).unwrap();
+        let data = serde_json::to_string_pretty(&result)?;
 
-        let result_again: CNIResult = serde_json::from_str(&data).unwrap();
+        let result_again: CNIResult = serde_json::from_str(&data)?;
         assert_eq!(expected, result_again);
+        Ok(())
     }
 
     #[rstest]
@@ -1874,9 +1657,11 @@ mod tests {
             pci_id: Some("0000:04:00.1".to_string()),
         }
     )]
-    fn test_interface_serialize(#[case] interface: Interface) {
+    fn test_interface_serialize(
+        #[case] interface: Interface,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Serialize to JSON
-        let json = serde_json::to_string(&interface).unwrap();
+        let json = serde_json::to_string(&interface)?;
 
         // Verify basic fields are always present
         assert!(json.contains(&format!("\"name\":\"{}\"", interface.name)));
@@ -1884,32 +1669,33 @@ mod tests {
 
         // Verify optional fields serialization with correct camelCase naming
         if let Some(ref mtu) = interface.mtu {
-            assert!(json.contains(&format!("\"mtu\":{}", mtu)));
+            assert!(json.contains(&format!("\"mtu\":{mtu}")));
         } else {
             assert!(!json.contains("\"mtu\""));
         }
 
         if let Some(ref sandbox) = interface.sandbox {
-            assert!(json.contains(&format!("\"sandbox\":\"{}\"", sandbox)));
+            assert!(json.contains(&format!("\"sandbox\":\"{sandbox}\"")));
         } else {
             assert!(!json.contains("\"sandbox\""));
         }
 
         if let Some(ref socket_path) = interface.socket_path {
-            assert!(json.contains(&format!("\"socketPath\":\"{}\"", socket_path)));
+            assert!(json.contains(&format!("\"socketPath\":\"{socket_path}\"")));
         } else {
             assert!(!json.contains("\"socketPath\""));
         }
 
         if let Some(ref pci_id) = interface.pci_id {
-            assert!(json.contains(&format!("\"pciID\":\"{}\"", pci_id)));
+            assert!(json.contains(&format!("\"pciID\":\"{pci_id}\"")));
         } else {
             assert!(!json.contains("\"pciID\""));
         }
 
         // Verify round-trip serialization
-        let deserialized: Interface = serde_json::from_str(&json).unwrap();
+        let deserialized: Interface = serde_json::from_str(&json)?;
         assert_eq!(interface, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -1935,16 +1721,17 @@ mod tests {
         #[case] ip_config: IpConfig,
         #[case] has_interface: bool,
         #[case] has_gateway: bool,
-    ) {
-        let json = serde_json::to_string(&ip_config).unwrap();
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&ip_config)?;
         if !has_interface {
             assert!(!json.contains("interface"));
         }
         if !has_gateway {
             assert!(!json.contains("gateway"));
         }
-        let deserialized: IpConfig = serde_json::from_str(&json).unwrap();
+        let deserialized: IpConfig = serde_json::from_str(&json)?;
         assert_eq!(ip_config, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -1974,16 +1761,21 @@ mod tests {
         false,
         false
     )]
-    fn test_route_serialize(#[case] route: Route, #[case] has_gw: bool, #[case] has_mtu: bool) {
-        let json = serde_json::to_string(&route).unwrap();
+    fn test_route_serialize(
+        #[case] route: Route,
+        #[case] has_gw: bool,
+        #[case] has_mtu: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&route)?;
         if !has_gw {
             assert!(!json.contains("\"gw\""));
         }
         if !has_mtu {
             assert!(!json.contains("\"mtu\""));
         }
-        let deserialized: Route = serde_json::from_str(&json).unwrap();
+        let deserialized: Route = serde_json::from_str(&json)?;
         assert_eq!(route, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -2014,8 +1806,8 @@ mod tests {
         #[case] has_domain: bool,
         #[case] has_search: bool,
         #[case] has_options: bool,
-    ) {
-        let json = serde_json::to_string(&dns).unwrap();
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&dns)?;
         if !has_domain {
             assert!(!json.contains("\"domain\""));
         }
@@ -2025,18 +1817,23 @@ mod tests {
         if !has_options {
             assert!(!json.contains("\"options\""));
         }
-        let deserialized: Dns = serde_json::from_str(&json).unwrap();
+        let deserialized: Dns = serde_json::from_str(&json)?;
         assert_eq!(dns, deserialized);
+        Ok(())
     }
 
     #[rstest]
     #[case(Protocol::Tcp, "tcp")]
     #[case(Protocol::Udp, "udp")]
-    fn test_protocol_serialize(#[case] protocol: Protocol, #[case] expected: &str) {
-        let json = serde_json::to_string(&protocol).unwrap();
-        assert_eq!(json, format!("\"{}\"", expected));
-        let deserialized: Protocol = serde_json::from_str(&json).unwrap();
+    fn test_protocol_serialize(
+        #[case] protocol: Protocol,
+        #[case] expected: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&protocol)?;
+        assert_eq!(json, format!("\"{expected}\""));
+        let deserialized: Protocol = serde_json::from_str(&json)?;
         assert_eq!(protocol, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -2056,13 +1853,17 @@ mod tests {
         },
         false
     )]
-    fn test_port_mapping_serialize(#[case] port_mapping: PortMapping, #[case] has_protocol: bool) {
-        let json = serde_json::to_string(&port_mapping).unwrap();
+    fn test_port_mapping_serialize(
+        #[case] port_mapping: PortMapping,
+        #[case] has_protocol: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&port_mapping)?;
         if !has_protocol {
             assert!(!json.contains("\"protocol\""));
         }
-        let deserialized: PortMapping = serde_json::from_str(&json).unwrap();
+        let deserialized: PortMapping = serde_json::from_str(&json)?;
         assert_eq!(port_mapping, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -2109,8 +1910,8 @@ mod tests {
         #[case] has_ips: bool,
         #[case] has_routes: bool,
         #[case] has_dns: bool,
-    ) {
-        let json = serde_json::to_string(&result).unwrap();
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&result)?;
 
         if !has_interfaces {
             assert!(!json.contains("\"interfaces\""));
@@ -2125,8 +1926,9 @@ mod tests {
             assert!(!json.contains("\"dns\""));
         }
 
-        let deserialized: CNIResult = serde_json::from_str(&json).unwrap();
+        let deserialized: CNIResult = serde_json::from_str(&json)?;
         assert_eq!(result, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -2147,13 +1949,17 @@ mod tests {
         },
         vec![]
     )]
-    fn test_ipam_serialize(#[case] ipam: Ipam, #[case] expected_keys: Vec<&str>) {
-        let json = serde_json::to_string(&ipam).unwrap();
-        let deserialized: Ipam = serde_json::from_str(&json).unwrap();
+    fn test_ipam_serialize(
+        #[case] ipam: Ipam,
+        #[case] expected_keys: Vec<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&ipam)?;
+        let deserialized: Ipam = serde_json::from_str(&json)?;
         assert_eq!(ipam.r#type, deserialized.r#type);
         for key in expected_keys {
             assert_eq!(ipam.custom.get(key), deserialized.custom.get(key));
         }
+        Ok(())
     }
 
     #[rstest]
@@ -2173,10 +1979,13 @@ mod tests {
             custom: HashMap::from([("mac".to_string(), json!("00:11:22:33:44:66"))]),
         }
     )]
-    fn test_runtime_conf_serialize(#[case] runtime_conf: RuntimeConf) {
-        let json = serde_json::to_string(&runtime_conf).unwrap();
-        let deserialized: RuntimeConf = serde_json::from_str(&json).unwrap();
+    fn test_runtime_conf_serialize(
+        #[case] runtime_conf: RuntimeConf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&runtime_conf)?;
+        let deserialized: RuntimeConf = serde_json::from_str(&json)?;
         assert_eq!(runtime_conf, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -2232,19 +2041,20 @@ mod tests {
         #[case] expected_ips: usize,
         #[case] expected_routes: usize,
         #[case] has_dns: bool,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // CNI spec requires cniVersion in the success result
         // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#success
-        let result: super::CNIResultWithCNIVersion = serde_json::from_str(input).unwrap();
+        let result: super::CNIResultWithCNIVersion = serde_json::from_str(input)?;
         assert_eq!(result.cni_version, expected_version);
         assert_eq!(result.inner.interfaces.len(), expected_interfaces);
         assert_eq!(result.inner.ips.len(), expected_ips);
         assert_eq!(result.inner.routes.len(), expected_routes);
         assert_eq!(result.inner.dns.is_some(), has_dns);
+        Ok(())
     }
 
     #[test]
-    fn test_ipam_delegated_plugin_result() {
+    fn test_ipam_delegated_plugin_result() -> Result<(), Box<dyn std::error::Error>> {
         // IPAM delegated plugins return abbreviated Success object without interfaces
         // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#delegated-plugins-ipam
         let input = r#"{
@@ -2264,7 +2074,7 @@ mod tests {
   }
 }"#;
 
-        let result: CNIResult = serde_json::from_str(input).unwrap();
+        let result: CNIResult = serde_json::from_str(input)?;
         assert!(result.interfaces.is_empty());
         assert_eq!(result.ips.len(), 1);
         assert!(
@@ -2273,6 +2083,7 @@ mod tests {
         );
         assert_eq!(result.routes.len(), 1);
         assert!(result.dns.is_some());
+        Ok(())
     }
 
     #[rstest]
@@ -2306,9 +2117,9 @@ mod tests {
         #[case] route: Route,
         #[case] has_mtu: bool,
         #[case] has_advmss: bool,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Route can have mtu and advmss fields (not in spec examples but valid fields)
-        let json = serde_json::to_string(&route).unwrap();
+        let json = serde_json::to_string(&route)?;
         if has_mtu {
             assert!(json.contains("\"mtu\""));
         }
@@ -2316,8 +2127,9 @@ mod tests {
             assert!(json.contains("\"advmss\""));
         }
 
-        let deserialized: Route = serde_json::from_str(&json).unwrap();
+        let deserialized: Route = serde_json::from_str(&json)?;
         assert_eq!(route, deserialized);
+        Ok(())
     }
 
     #[rstest]
@@ -2347,18 +2159,22 @@ mod tests {
 }"#,
         None
     )]
-    fn test_net_conf_with_ip_masq(#[case] input: &str, #[case] expected: Option<bool>) {
+    fn test_net_conf_with_ip_masq(
+        #[case] input: &str,
+        #[case] expected: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // ipMasq is a well-known optional field
         // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#plugin-configuration-objects
-        let conf: NetConf = serde_json::from_str(input).unwrap();
+        let conf: NetConf = serde_json::from_str(input)?;
         assert_eq!(conf.ip_masq, expected);
 
-        let json = serde_json::to_string(&conf).unwrap();
+        let json = serde_json::to_string(&conf)?;
         if expected.is_some() {
             assert!(json.contains("ipMasq"));
         } else {
             assert!(!json.contains("ipMasq"));
         }
+        Ok(())
     }
 
     #[rstest]
@@ -2403,11 +2219,11 @@ mod tests {
         #[case] has_domain: bool,
         #[case] has_search: bool,
         #[case] has_options: bool,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Test DNS with all optional fields populated
         // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#plugin-configuration-objects
-        let json = serde_json::to_string(&dns).unwrap();
-        let deserialized: Dns = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&dns)?;
+        let deserialized: Dns = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.nameservers, dns.nameservers);
         assert_eq!(deserialized.domain, dns.domain);
@@ -2417,5 +2233,6 @@ mod tests {
         assert_eq!(deserialized.domain.is_some(), has_domain);
         assert_eq!(deserialized.search.is_some(), has_search);
         assert_eq!(deserialized.options.is_some(), has_options);
+        Ok(())
     }
 }

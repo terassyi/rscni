@@ -1,0 +1,24 @@
+[package]
+name = "rscni-types"
+version = "0.1.0"
+description = "CNI specification types shared by rscni-plugin and rscni-runtime"
+documentation = "https://docs.rs/rscni-types"
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+
+[lints]
+workspace = true

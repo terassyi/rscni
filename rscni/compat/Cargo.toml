@@ -1,0 +1,34 @@
+[package]
+name = "rscni"
+version = "0.3.0"
+description = "Deprecated: renamed to rscni-plugin"
+# Points at the replacement on purpose: there is nothing here worth reading.
+documentation = "https://docs.rs/rscni-plugin"
+# No keywords or categories: this crate should not compete with rscni-plugin in
+# crates.io search for the terms it is being replaced by.
+readme = "README.md"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+
+[features]
+default = ["std"]
+std = ["rscni-plugin/std"]
+async = ["rscni-plugin/async"]
+# 0.2.1 declared `async-trait` as a plain optional dependency, so Cargo exposed an
+# implicit `async-trait` feature; a user who listed it must keep resolving. It forwards
+# to rscni-plugin's own implicit feature of the same name.
+async-trait = ["rscni-plugin/async-trait"]
+
+[dependencies]
+# `default-features = false` so that `std` is genuinely forwarded rather than always on.
+rscni-plugin = { version = "0.3.0", path = "../plugin", default-features = false }
+
+[package.metadata.docs.rs]
+# `async_cni` re-exports a feature-gated module, so it only exists with `async` on.
+all-features = true
+
+[lints]
+workspace = true

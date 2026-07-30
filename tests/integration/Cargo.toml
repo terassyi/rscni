@@ -1,0 +1,17 @@
+[package]
+name = "integration-tests"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+
+[dev-dependencies]
+# `rscni` is the deprecated 0.3.0 facade. `facade_compat` depends on it on purpose, to
+# prove the module paths 0.2.x used still resolve.
+rscni = { path = "../../rscni/compat", features = ["async"] }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
