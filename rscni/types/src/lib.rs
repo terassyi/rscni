@@ -1,7 +1,7 @@
 //! Shared [CNI specification](https://www.cni.dev/) types for Rust.
 //!
 //! This crate holds the data structures and error type defined by the
-//! [CNI specification v1.3.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md),
+//! [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md),
 //! and nothing else. It knows how to represent a CNI conversation but never
 //! takes part in one.
 //!
@@ -27,7 +27,7 @@
 //!
 //! # Supported specification versions
 //!
-//! v0.3.1, v0.4.0, v1.0.0, v1.1.0 and v1.3.0.
+//! v0.3.1, v0.4.0, v1.0.0 and v1.1.0.
 
 pub mod error;
 pub mod types;

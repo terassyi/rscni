@@ -156,12 +156,12 @@ pub struct NetConfList {
     pub disable_check: bool,
     /// Either true or false.
     /// If disableGC is true, runtimes must not call GC for this network configuration list.
-    /// (CNI spec v1.2.1+)
+    /// (CNI spec 1.1.0; added in the spec revision shipped with CNI v1.2.1)
     #[serde(default)] // default is false
     pub disable_gc: bool,
     /// Either true or false.
     /// If loadOnlyInlinedPlugins is true, runtimes must not load any plugins from the filesystem.
-    /// (CNI spec v1.3.0+)
+    /// (CNI spec 1.1.0; added in the spec revision shipped with CNI v1.3.0)
     #[serde(default)] // default is false
     pub load_only_inlined_plugins: bool,
     /// A list of CNI plugins and their configuration, which is a list of plugin configuration objects.
@@ -238,7 +238,7 @@ pub struct Route {
 
 /// `CNIResult` represents the Success result type.
 /// `CmdFm` returns this if it finish successfully.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#success>.
+/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-success>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CNIResult {
@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn test_net_conf_with_valid_attachments() -> Result<(), Box<dyn std::error::Error>> {
         let json = r#"{
-            "cniVersion": "1.3.0",
+            "cniVersion": "1.1.0",
             "name": "test-network",
             "type": "bridge",
             "cni.dev/valid-attachments": [
@@ -441,7 +441,7 @@ mod tests {
         }"#;
 
         let conf: NetConf = serde_json::from_str(json)?;
-        assert_eq!(conf.cni_version, "1.3.0");
+        assert_eq!(conf.cni_version, "1.1.0");
         assert_eq!(conf.name, "test-network");
         assert_eq!(conf.r#type, "bridge");
         let attachments = conf
@@ -455,7 +455,7 @@ mod tests {
 
         // Test serialization
         let conf_with_attachments = NetConf {
-            cni_version: "1.3.0".to_string(),
+            cni_version: "1.1.0".to_string(),
             cni_versions: None,
             name: "test-network".to_string(),
             r#type: "bridge".to_string(),
@@ -488,7 +488,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#add-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "bridge",
   "bridge": "cni0",
@@ -503,7 +503,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
@@ -536,7 +536,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#deriving-runtimeconfig
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "test",
   "type": "myPlugin",
   "capabilities": {
@@ -544,7 +544,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "test".to_string(),
                 r#type: "myPlugin".to_string(),
@@ -565,7 +565,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#deriving-runtimeconfig
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "test",
   "type": "myPlugin",
   "capabilities": {
@@ -576,7 +576,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "test".to_string(),
                 r#type: "myPlugin".to_string(),
@@ -606,7 +606,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#add-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "tuning",
   "sysctl": {
@@ -649,7 +649,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "tuning".to_string(),
@@ -724,7 +724,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#add-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "portmap",
   "runtimeConfig": {
@@ -766,7 +766,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "portmap".to_string(),
@@ -845,7 +845,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#delete-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "portmap",
   "runtimeConfig": {
@@ -887,7 +887,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "portmap".to_string(),
@@ -966,7 +966,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#delete-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "tuning",
   "sysctl": {
@@ -1009,7 +1009,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "tuning".to_string(),
@@ -1084,7 +1084,7 @@ mod tests {
         case(
             // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#delete-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "bridge",
   "bridge": "cni0",
@@ -1131,7 +1131,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
@@ -1215,7 +1215,7 @@ mod tests {
         case(
           // ref: https://github.com/containernetworking/cni/blob/b62753aa2bfa365c1ceaff6f25774a8047c896b5/SPEC.md#check-example
             r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "name": "dbnet",
   "type": "bridge",
   "bridge": "cni0",
@@ -1262,7 +1262,7 @@ mod tests {
   }
 }"#.to_string(),
             NetConf {
-                cni_version: "1.3.0".to_string(),
+                cni_version: "1.1.0".to_string(),
                 cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
@@ -2023,12 +2023,12 @@ mod tests {
     )]
     #[case(
         r#"{
-  "cniVersion": "1.3.0",
+  "cniVersion": "1.1.0",
   "interfaces": [],
   "ips": [],
   "routes": []
 }"#,
-        "1.3.0",
+        "1.1.0",
         0,
         0,
         0,
@@ -2043,7 +2043,7 @@ mod tests {
         #[case] has_dns: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // CNI spec requires cniVersion in the success result
-        // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#success
+        // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-success
         let result: super::CNIResultWithCNIVersion = serde_json::from_str(input)?;
         assert_eq!(result.cni_version, expected_version);
         assert_eq!(result.inner.interfaces.len(), expected_interfaces);

@@ -6,7 +6,7 @@ A Rust library for building [CNI (Container Network Interface)](https://www.cni.
 [![docs.rs](https://docs.rs/rscni-plugin/badge.svg)](https://docs.rs/rscni-plugin)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/terassyi/rscni/blob/main/LICENSE)
 
-`rscni-plugin` provides a type-safe API for implementing CNI plugins in Rust, following the [CNI specification v1.3.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
+`rscni-plugin` provides a type-safe API for implementing CNI plugins in Rust, following the [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
 
 This is the *plugin* side of CNI: the process a container runtime invokes. To invoke plugins instead, see `rscni-runtime` (planned).
 
@@ -17,7 +17,7 @@ This is the *plugin* side of CNI: the process a container runtime invokes. To in
 
 - **Idiomatic Rust**: Trait-based design with type safety and zero-cost abstractions
 - **Async Support**: Optional async/await support for high-performance plugins
-- **CNI Spec Compliant**: Supports CNI specification v0.3.1, v0.4.0, v1.0.0, v1.1.0 and v1.3.0
+- **CNI Spec Compliant**: Supports CNI specification v0.3.1, v0.4.0, v1.0.0 and v1.1.0
 - **Well-tested**: Comprehensive unit tests and integration tests
 
 ## Installation

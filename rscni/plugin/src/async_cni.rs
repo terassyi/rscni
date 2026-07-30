@@ -197,7 +197,7 @@ impl Plugin {
     ///
     /// # Arguments
     ///
-    /// * `ver` - The primary CNI version (e.g., "1.3.0")
+    /// * `ver` - The primary CNI version (e.g., "1.1.0")
     /// * `versions` - List of supported CNI versions
     ///
     /// # Example
@@ -206,8 +206,8 @@ impl Plugin {
     /// use rscni_plugin::async_cni::Plugin;
     ///
     /// let plugin = Plugin::new(
-    ///     "1.3.0",
-    ///     vec!["1.0.0".to_string(), "1.1.0".to_string(), "1.3.0".to_string()]
+    ///     "1.1.0",
+    ///     vec!["1.0.0".to_string(), "1.1.0".to_string()]
     /// );
     /// ```
     #[must_use]

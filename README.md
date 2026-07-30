@@ -1,6 +1,6 @@
 # RsCNI
 
-Rust libraries for both sides of [CNI (Container Network Interface)](https://www.cni.dev/) — writing plugins and invoking them — following the [CNI specification v1.3.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
+Rust libraries for both sides of [CNI (Container Network Interface)](https://www.cni.dev/) — writing plugins and invoking them — following the [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
 
 ![CI](https://github.com/terassyi/rscni/workflows/CI/badge.svg)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
