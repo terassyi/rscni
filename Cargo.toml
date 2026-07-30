@@ -1,45 +1,44 @@
-workspace = { members = ["examples/async-rscni-debug", "examples/rscni-debug"] }
-[package]
-name = "rscni"
-version = "0.2.1"
+[workspace]
+# A virtual manifest does not infer the resolver from `edition`, so it must be set here.
+resolver = "3"
+# Listed one by one rather than as `rscni/*`: that glob also matches `rscni/examples`,
+# which has no manifest of its own, and cargo then fails to load the workspace.
+members = [
+  "rscni/types",
+  "rscni/plugin",
+  "rscni/compat",
+  "rscni/examples/*",
+  "tests/integration",
+]
+
+[workspace.package]
 edition = "2024"
 authors = ["terassyi <iscale821@gmail.com>"]
 repository = "https://github.com/terassyi/rscni"
-license-file = "LICENSE"
-readme = "README.md"
-description = "CNI plugin library for Rust"
+homepage = "https://github.com/terassyi/rscni"
 keywords = ["cni", "container", "networking", "kubernetes"]
 categories = ["network-programming", "api-bindings"]
-homepage = "https://github.com/terassyi/rscni"
-documentation = "https://docs.rs/rscni"
-exclude = [
-  ".github/",
-  "examples/",
-]
+license = "Apache-2.0"
+# `readme` is deliberately NOT inherited: an inherited value resolves against the
+# workspace root, which would point every crate at the top-level README. Each crate
+# sets its own.
 
-[features]
-default = ["std"]
-std = []
-async = ["async-trait"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-async-trait = { version = "0.1.89", optional = true }
+[workspace.dependencies]
+async-trait = "0.1.89"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 thiserror = "2.0.17"
 
-[dev-dependencies]
-assert-json-diff = "2.0.2"
 rstest = "0.26.1"
 tempfile = "3.14.0"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
+tokio = "1.48.0"
 
-[lints.rust]
+# Opted into per crate; everything inherits these except the examples. Test code is
+# held to the same bar — tests return `Result` and use `?` instead of unwrap.
+[workspace.lints.rust]
 unsafe_code = "forbid"
 
-[lints.clippy]
+[workspace.lints.clippy]
 enum_glob_use = "deny"
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }

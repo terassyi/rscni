@@ -2,69 +2,201 @@ name: CI
 on: [pull_request]
 env:
   CARGO_TERM_COLOR: always
+
+# The cargo cache steps are repeated per job because composite actions are the only way
+# to share them and they are not worth one here. Each job keys its `target` cache on its
+# own name: the jobs produce different artifact kinds and feature sets, and a shared key
+# means only the first job to finish ever saves.
 jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup rust toolchain
+        # No-arg install resolves rust-toolchain.toml — the same pin rustup uses
+        # locally — including its components and profile. Documented rustup behavior
+        # since 1.28; the runners ship newer.
+        run: rustup toolchain install
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-build-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-build-
+      - name: Build workspace
+        run: cargo build --workspace --all-features
   lint:
     name: Lint
     runs-on: ubuntu-24.04
+    # Linting code that does not compile reports rustc errors through clippy, which is
+    # the build job's finding to make; the edge also lets this job reuse its
+    # dependency artifacts through the cache fallback below.
+    needs: build
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+        run: rustup toolchain install
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run Check
-        run: cargo check --all-features
+          key: ${{ runner.os }}-cargo-target-lint-${{ hashFiles('Cargo.lock') }}
+          # Prefer a previous lint cache (it holds clippy's own artifacts); fall back to
+          # the build job's target, which shares the compiled dependencies.
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-lint-
+            ${{ runner.os }}-cargo-target-build-${{ hashFiles('Cargo.lock') }}
       - name: Run fmt
         run: cargo fmt --all -- --check
+      # No separate `cargo check`: clippy type-checks the same code and reports the same
+      # rustc diagnostics, so running both compiles the workspace twice.
       - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings
-  test:
-    name: Test
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+  unit-test:
+    name: Unit Test (${{ matrix.suite.name }})
     runs-on: ubuntu-24.04
+    needs: lint
+    strategy:
+      fail-fast: false
+      # One leg per workspace crate with unit tests, and one per feature set where a
+      # crate has them, all in parallel. The `rscni` compat shim has no unit tests of
+      # its own — the e2e job's facade_compat suite covers it — and the examples and
+      # integration-tests crates belong to the e2e job. A new crate needs a row here
+      # (see RELEASE.md).
+      matrix:
+        suite:
+          - name: rscni-types
+            crate: rscni-types
+            key: types
+            flags: ''
+          - name: rscni-plugin, std
+            crate: rscni-plugin
+            key: plugin-std
+            flags: ''
+          - name: rscni-plugin, async
+            crate: rscni-plugin
+            key: plugin-async
+            flags: '--all-features'
     steps:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      - name: Test rscni library (default features)
-        run: cargo test --lib
-      - name: Test rscni library (with async feature)
-        run: cargo test --lib --features async
-      - name: Test rscni documents
-        run: cargo test --doc
+          key: ${{ runner.os }}-cargo-target-unit-${{ matrix.suite.key }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-unit-${{ matrix.suite.key }}-
+      - name: Test library
+        run: cargo test --package ${{ matrix.suite.crate }} --lib ${{ matrix.suite.flags }}
+      - name: Test documents
+        run: cargo test --package ${{ matrix.suite.crate }} --doc ${{ matrix.suite.flags }}
+  e2e-test:
+    name: E2E Test
+    runs-on: ubuntu-24.04
+    # Runs once every unit-test matrix leg is green: unit failures are cheaper to read
+    # from their own leg than from an e2e run over the same broken code.
+    needs: unit-test
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup rust toolchain
+        run: rustup toolchain install
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-e2e-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-e2e-
+      # One invocation for both plugins so rscni-plugin resolves under a single feature
+      # set instead of being rebuilt per package.
       - name: Build debug plugins
-        run: |
-          cargo build --package rscni-debug
-          cargo build --package async-rscni-debug
-      - name: Test plugin integration
-        run: cargo test --test plugin_integration_test
+        run: cargo build --package rscni-debug --package async-rscni-debug
+      # Drives the example plugin binaries over env + stdin as a runtime would, and pins
+      # the `rscni` 0.3.0 facade to the module paths 0.2.x exposed.
+      - name: Test end to end
+        run: cargo test --package integration-tests
+  package:
+    name: Package
+    runs-on: ubuntu-24.04
+    # Last stage of the pipeline (build -> lint -> unit -> e2e -> package): packaging
+    # release artifacts from code whose tests fail is never useful. Depending on e2e
+    # alone is enough - it already transitively requires everything upstream.
+    needs: e2e-test
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup rust toolchain
+        run: rustup toolchain install
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-package-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-target-package-
+      # Catches a path dependency missing a `version`, or a file that would not ship.
+      #
+      # All three in one invocation: cargo verifies each packaged crate against the
+      # others it just built. Packaging rscni-plugin on its own fails until rscni-types
+      # is actually published, so per-crate invocations cannot gate a PR.
+      - name: Dry-run package
+        run: cargo package -p rscni-types -p rscni-plugin -p rscni

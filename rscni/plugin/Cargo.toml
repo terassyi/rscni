@@ -1,0 +1,30 @@
+[package]
+name = "rscni-plugin"
+version = "0.3.0"
+description = "CNI plugin library for Rust"
+documentation = "https://docs.rs/rscni-plugin"
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+
+[features]
+default = ["std"]
+std = []
+async = ["async-trait"]
+
+[dependencies]
+rscni-types = { version = "0.1.0", path = "../types" }
+async-trait = { workspace = true, optional = true }
+serde_json.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

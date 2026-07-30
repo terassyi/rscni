@@ -1,146 +1,69 @@
 # RsCNI
 
-A Rust library for building [CNI (Container Network Interface)](https://www.cni.dev/) plugins with trait-based architecture.
+Rust libraries for both sides of [CNI (Container Network Interface)](https://www.cni.dev/) — writing plugins and invoking them — following the [CNI specification v1.3.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
 
-[![crates.io](https://img.shields.io/crates/v/rscni.svg)](https://crates.io/crates/rscni)
-[![docs.rs](https://docs.rs/rscni/badge.svg)](https://docs.rs/rscni)
 ![CI](https://github.com/terassyi/rscni/workflows/CI/badge.svg)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-RsCNI provides a type-safe API for implementing CNI plugins in Rust, following the [CNI specification v1.3.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
+## Crates
 
-> **Breaking Changes in v0.1.0**
+| Crate | Version | Use it to |
+| --- | --- | --- |
+| [`rscni-plugin`](./rscni/plugin) | [![crates.io](https://img.shields.io/crates/v/rscni-plugin.svg)](https://crates.io/crates/rscni-plugin) | Write a CNI plugin — the process a container runtime invokes |
+| `rscni-runtime` | *planned* | Invoke CNI plugins — the Rust counterpart to Go's [`libcni`](https://github.com/containernetworking/cni/tree/v1.3.0/libcni) |
+| [`rscni-types`](./rscni/types) | [![crates.io](https://img.shields.io/crates/v/rscni-types.svg)](https://crates.io/crates/rscni-types) | Work with the specification types on their own |
+
+Both sides share `rscni-types`, so a plugin and a runtime built from this repository agree on the wire format by construction rather than by convention. Keeping them together also means each can serve as the other's reference implementation — `rscni-runtime` is tested by driving the `rscni-plugin`-based example plugins.
+
+> [!IMPORTANT]
+> **`rscni` has been renamed to `rscni-plugin`.**
 >
-> The API has been completely redesigned from v0.0.4 with a new trait-based architecture.
+> ```toml
+> # before
+> rscni = "0.2"
+> # after
+> rscni-plugin = "0.3"
+> ```
+>
+> Then replace `rscni::` with `rscni_plugin::`. The module layout and feature names are unchanged. [`rscni` 0.3.0](./rscni/compat) is a deprecated shim that re-exports `rscni-plugin` under the old paths so existing code keeps compiling; it will not be updated again.
+>
+> The rename happened because the bare name `rscni` did not say which side of CNI it implemented.
 
-## Features
+## Repository layout
 
-- **Idiomatic Rust**: Trait-based design with type safety and zero-cost abstractions
-- **Async Support**: Optional async/await support for high-performance plugins
-- **CNI Spec Compliant**: Supports CNI specification v0.3.1, v0.4.0, v1.0.0, v1.1.0 and v1.3.0
-- **Well-tested**: Comprehensive unit tests and integration tests
-
-## Installation
-
-Add this to your `Cargo.toml`:
-
-```toml
-[dependencies]
-rscni = "0.2"
+```
+rscni/
+  types/      rscni-types    — CNI specification types, shared by both sides
+  plugin/     rscni-plugin   — write a plugin
+  compat/     rscni          — deprecated 0.3.0 shim for the rename
+  examples/                  — example plugins (not published)
+tests/
+  integration/               — cross-crate tests (not published)
 ```
 
-For async support, you need to enable the `async` feature and add `async-trait` and an async runtime (such as `tokio`):
+A cargo virtual workspace: each crate is versioned and released independently.
 
-```toml
-[dependencies]
-rscni = { version = "0.2", features = ["async"] }
-async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
-```
+## Writing a plugin
 
-## Quick Start
-
-### Basic Plugin (Sync)
-
-Implement the `Cni` trait to create your CNI plugin:
+Implement the `Cni` trait — `add`, `del`, `check`, `status`, `gc` — and hand it to
+`Plugin::run`, which reads the `CNI_*` environment and stdin, dispatches, and writes the
+result:
 
 ```rust
-use rscni::cni::{Cni, Plugin};
-use rscni::{Args, CNIResult, Error};
-
-struct MyCniPlugin;
-
-impl Cni for MyCniPlugin {
-    fn add(&self, args: Args) -> Result<CNIResult, Error> {
-        // Implement network setup logic
-        Ok(CNIResult::default())
-    }
-
-    fn del(&self, args: Args) -> Result<CNIResult, Error> {
-        // Implement network teardown logic
-        Ok(CNIResult::default())
-    }
-
-    fn check(&self, args: Args) -> Result<CNIResult, Error> {
-        // Implement network validation logic
-        Ok(CNIResult::default())
-    }
-
-    fn status(&self, args: Args) -> Result<(), Error> {
-        // Implement status check
-        Ok(())
-    }
-
-    fn gc(&self, args: Args) -> Result<(), Error> {
-        // Implement gc logic
-        Ok(())
-    }
-}
-
-fn main() {
-    let my_cni = MyCniPlugin;
-    let plugin = Plugin::default().msg("My CNI Plugin v0.1.0");
-
-    plugin.run(&my_cni).expect("Failed to execute CNI command");
-}
+let plugin = Plugin::default().msg("My CNI Plugin v0.1.0");
+plugin.run(&MyCniPlugin).expect("Failed to execute CNI command");
 ```
 
-### Async Plugin
-
-Enable the `async` feature and implement the async `Cni` trait:
-
-```rust
-use async_trait::async_trait;
-use rscni::async_cni::{Cni, Plugin};
-use rscni::{Args, CNIResult, Error};
-
-struct MyAsyncCniPlugin;
-
-#[async_trait]
-impl Cni for MyAsyncCniPlugin {
-    async fn add(&self, args: Args) -> Result<CNIResult, Error> {
-        // Async network setup
-        Ok(CNIResult::default())
-    }
-
-    async fn del(&self, args: Args) -> Result<CNIResult, Error> {
-        // Async network teardown
-        Ok(CNIResult::default())
-    }
-
-    async fn check(&self, args: Args) -> Result<CNIResult, Error> {
-        // Async network validation
-        Ok(CNIResult::default())
-    }
-
-    async fn status(&self, args: Args) -> Result<(), Error> {
-        // Implement status check
-        Ok(())
-    }
-
-    async fn gc(&self, args: Args) -> Result<(), Error> {
-        // Implement gc logic
-        Ok(())
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    let my_cni = MyAsyncCniPlugin;
-    let plugin = Plugin::default().msg("My Async CNI Plugin v0.1.0");
-
-    plugin.run(&my_cni).await.expect("Failed to execute CNI command");
-}
-```
+An async version is available behind the `async` feature. The
+[`rscni-plugin` README](./rscni/plugin/README.md) has the full example for both,
+installation, and the type reference.
 
 ## Examples
 
-Complete working examples are available in the [`examples/`](./examples) directory:
+Complete working examples are in [`rscni/examples/`](./rscni/examples):
 
-- [**rscni-debug**](./examples/rscni-debug/src/main.rs) - Synchronous CNI plugin for debugging
-- [**async-rscni-debug**](./examples/async-rscni-debug/src/main.rs) - Asynchronous CNI plugin for debugging
-
-Run examples:
+- [**rscni-debug**](./rscni/examples/rscni-debug/src/main.rs) - Synchronous CNI plugin for debugging
+- [**async-rscni-debug**](./rscni/examples/async-rscni-debug/src/main.rs) - Asynchronous CNI plugin for debugging
 
 ```bash
 # Build the debug plugin
@@ -150,31 +73,27 @@ cargo build --package rscni-debug
 CNI_COMMAND=VERSION ./target/debug/rscni-debug
 ```
 
-## CNI Data Types
+## Development
 
-RsCNI provides strongly-typed structures for CNI configurations:
-
-- `Args` - CNI command arguments (container ID, netns, ifname, etc.)
-- `NetConf` - Network configuration from stdin
-- `CNIResult` - Plugin execution result with IPs, routes, DNS
-- `PluginInfo` - Plugin version information
-
-See the [API documentation](https://docs.rs/rscni) for complete type definitions.
-
-## Testing
-
-RsCNI includes comprehensive test coverage:
+[`just`](https://github.com/casey/just) drives the common tasks:
 
 ```bash
-# Run unit tests only
-cargo test --lib
-
-# Run with async feature
-cargo test --features async
-
-# Run integration tests
-cargo test --test plugin_integration_test
+just lint     # fmt and clippy across the workspace
+just test     # unit, doc and integration tests
+just build    # build every crate
+just package  # check the publishable crates package cleanly
+just --list   # everything else
 ```
+
+The example plugins come with a manual [kind](https://kind.sigs.k8s.io/) walkthrough —
+`just examples::kind-up` installs one into a real cluster so you can watch it being
+called. Its recipes live in [`rscni/examples/justfile`](./rscni/examples/justfile),
+since they need docker and kind and never run in CI. See
+[`rscni/examples/`](./rscni/examples).
+
+## Releasing
+
+Each crate releases independently, tagged `<crate>-v<version>` (for example `rscni-plugin-v0.3.0`). See [RELEASE.md](./RELEASE.md).
 
 ## License
 

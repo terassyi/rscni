@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, io::Write, path::PathBuf};
 
-use rscni::{
+use rscni_plugin::{
     cni::{Cni, Plugin},
     error::Error,
     types::{Args, CNIResult},
@@ -20,9 +20,13 @@ fn main() {
         cni_output: PathBuf::from(OUTPUT_FILE_PATH),
     };
 
-    plugin
-        .run(&debug_conf)
-        .expect("Failed to complete the CNI call");
+    // Report the failure and exit with the error's CNI code instead of panicking: a
+    // panic hands the runtime a backtrace and exit code 101, neither of which is part
+    // of the CNI conversation.
+    if let Err(err) = plugin.run(&debug_conf) {
+        eprintln!("{err}: {}", err.details());
+        std::process::exit(i32::try_from(u32::from(&err)).unwrap_or(1));
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,7 +60,7 @@ impl Cni for DebugConf {
 
 impl DebugConf {
     fn open_file(&self, container_id: &str, cmd: &str) -> Result<std::fs::File, Error> {
-        fs::create_dir_all(self.cni_output.as_os_str().to_str().unwrap()).map_err(|e| {
+        fs::create_dir_all(&self.cni_output).map_err(|e| {
             Error::Custom(
                 ERROR_CODE_FILE_OPEN,
                 ERROR_MSG_FILE_OPEN.to_string(),

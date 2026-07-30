@@ -30,7 +30,6 @@ use thiserror::Error;
 /// - 11: Try again later
 /// - 100+: Custom plugin-specific errors
 ///
-#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum Error {
     /// Incompatible CNI version (Error code: 1)
@@ -106,7 +105,7 @@ pub enum Error {
     /// # Example
     ///
     /// ```rust
-    /// use rscni::error::Error;
+    /// use rscni_types::error::Error;
     ///
     /// fn custom_validation() -> Result<(), Error> {
     ///     Err(Error::Custom(

@@ -1,25 +1,17 @@
-//! Asynchronous CNI plugin interface.
-//!
-//! Enable the `async` feature to use this module:
-//!
-//! ```toml
-//! [dependencies]
-//! rscni = { version = "0.2.1", features = ["async"] }
-//! ```
-
 use std::io::Write;
 
-#[cfg(feature = "async")]
-use async_trait::async_trait;
-
-use crate::{
+use rscni_types::{
     error::Error,
-    types::{Args, ArgsBuilder, CNIResult, Cmd},
-    util::{Env, Io, OsEnv, StdIo},
+    types::{CNIResult, Cmd},
     version::PluginInfo,
 };
 
-/// The core trait for implementing an async CNI plugin.
+use crate::{
+    args::{Args, ArgsBuilder, cmd_from_env},
+    util::{Env, Io, OsEnv, StdIo, about_text, version_json},
+};
+
+/// The core trait for implementing a CNI plugin.
 ///
 /// Implement this trait to define the behavior of your CNI plugin for the
 /// ADD, DEL, CHECK, and STATUS operations as specified by the CNI specification.
@@ -34,41 +26,38 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use async_trait::async_trait;
-/// use rscni::{async_cni::Cni, error::Error, types::{Args, CNIResult}};
+/// ```rust
+/// use rscni_plugin::{cni::Cni, error::Error, types::{Args, CNIResult}};
 ///
 /// struct MyPlugin;
 ///
-/// #[async_trait]
 /// impl Cni for MyPlugin {
-///     async fn add(&self, args: Args) -> Result<CNIResult, Error> {
+///     fn add(&self, args: Args) -> Result<CNIResult, Error> {
 ///         // Network setup logic
 ///         Ok(CNIResult::default())
 ///     }
 ///
-///     async fn del(&self, args: Args) -> Result<CNIResult, Error> {
+///     fn del(&self, args: Args) -> Result<CNIResult, Error> {
 ///         // Network cleanup logic
 ///         Ok(CNIResult::default())
 ///     }
 ///
-///     async fn check(&self, args: Args) -> Result<CNIResult, Error> {
+///     fn check(&self, args: Args) -> Result<CNIResult, Error> {
 ///         // Network verification logic
 ///         Ok(CNIResult::default())
 ///     }
 ///
-///     async fn status(&self, _args: Args) -> Result<(), Error> {
+///     fn status(&self, _args: Args) -> Result<(), Error> {
 ///         // Plugin readiness check
 ///         Ok(())
 ///     }
 ///
-///     async fn gc(&self, _args: Args) -> Result<(), Error> {
+///     fn gc(&self, _args: Args) -> Result<(), Error> {
 ///         // Garbage collection logic
 ///         Ok(())
 ///     }
 /// }
 /// ```
-#[cfg_attr(feature = "async", async_trait)]
 pub trait Cni {
     /// Executes the ADD command for the CNI plugin.
     /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-add-container-to-network-or-apply-modifications>
@@ -89,7 +78,7 @@ pub trait Cni {
     /// # Errors
     ///
     /// Returns an error if the ADD operation fails.
-    async fn add(&self, args: Args) -> Result<CNIResult, Error>;
+    fn add(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the DEL command for the CNI plugin.
     /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#del-remove-container-from-network-or-un-apply-modifications>
@@ -108,7 +97,7 @@ pub trait Cni {
     /// # Errors
     ///
     /// Returns an error if the DEL operation fails.
-    async fn del(&self, args: Args) -> Result<CNIResult, Error>;
+    fn del(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the CHECK command for the CNI plugin.
     /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#check-check-containers-networking-is-as-expected>
@@ -127,7 +116,7 @@ pub trait Cni {
     /// # Errors
     ///
     /// Returns an error if the CHECK operation fails.
-    async fn check(&self, args: Args) -> Result<CNIResult, Error>;
+    fn check(&self, args: Args) -> Result<CNIResult, Error>;
 
     /// Executes the STATUS command for the CNI plugin.
     /// <https://www.cni.dev/docs/spec/#status-check-plugin-status>
@@ -151,7 +140,7 @@ pub trait Cni {
     ///   The plugin cannot service ADD requests.
     /// - [`Error::PluginNotAvailableLimitedConnectivity`](../error/enum.Error.html#variant.PluginNotAvailableLimitedConnectivity) (code 51):
     ///   The plugin cannot service ADD requests, and existing containers may have limited connectivity.
-    async fn status(&self, args: Args) -> Result<(), Error>;
+    fn status(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the GC (Garbage Collection) command for the CNI plugin.
     /// <https://www.cni.dev/docs/spec/#gc-clean-up-any-stale-resources>
@@ -178,10 +167,36 @@ pub trait Cni {
     /// Returns an error if the GC operation fails. Plugins should generally complete
     /// a GC action without error. If an error is encountered, the plugin should continue
     /// removing as many resources as possible and report errors back to the runtime.
-    async fn gc(&self, args: Args) -> Result<(), Error>;
+    fn gc(&self, args: Args) -> Result<(), Error>;
 }
 
-/// Entry point for async CNI plugins.
+/// The main entry point for a CNI plugin.
+///
+/// `Plugin` handles all the CNI protocol details including:
+/// - Reading CNI environment variables
+/// - Parsing network configuration from stdin
+/// - Version negotiation
+/// - Routing commands (ADD/DEL/CHECK/VERSION) to the appropriate handler
+/// - Writing results to stdout
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use rscni_plugin::{cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+/// #
+/// # struct MyPlugin;
+/// # impl Cni for MyPlugin {
+/// #     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// #     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// #     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// #     fn status(&self, _args: Args) -> Result<(), Error> { Ok(()) }
+/// #     fn gc(&self, _args: Args) -> Result<(), Error> { Ok(()) }
+/// # }
+/// #
+/// let plugin = Plugin::default().msg("MyPlugin v1.0.0");
+/// let my_plugin = MyPlugin;
+/// plugin.run(&my_plugin).expect("Failed to run plugin");
+/// ```
 #[derive(Debug, Default)]
 pub struct Plugin {
     info: PluginInfo,
@@ -193,13 +208,13 @@ impl Plugin {
     ///
     /// # Arguments
     ///
-    /// * `ver` - The primary CNI version (e.g., "1.3.0")
-    /// * `versions` - List of supported CNI versions
+    /// * `ver` - The primary CNI version this plugin uses (e.g., "1.3.0")
+    /// * `versions` - List of all CNI versions this plugin supports
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use rscni::async_cni::Plugin;
+    /// ```rust
+    /// use rscni_plugin::cni::Plugin;
     ///
     /// let plugin = Plugin::new(
     ///     "1.3.0",
@@ -214,19 +229,21 @@ impl Plugin {
         }
     }
 
-    /// Sets a message to display with version information.
+    /// Sets an optional message to display with version information.
+    ///
+    /// This message is shown when the plugin is called with the VERSION command.
     ///
     /// # Arguments
     ///
-    /// * `msg` - Plugin description or version string
+    /// * `msg` - A description or version string for your plugin
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use rscni::async_cni::Plugin;
+    /// ```rust
+    /// use rscni_plugin::cni::Plugin;
     ///
     /// let plugin = Plugin::default()
-    ///     .msg("AsyncPlugin v1.0.0 - Async I/O support");
+    ///     .msg("MyPlugin v1.0.0 - CNI plugin");
     /// ```
     #[must_use]
     pub fn msg(mut self, msg: &str) -> Self {
@@ -234,72 +251,67 @@ impl Plugin {
         self
     }
 
-    /// Runs the CNI plugin asynchronously.
+    /// Runs the CNI plugin by processing the CNI command and executing the appropriate operation.
     ///
-    /// This method processes the CNI command asynchronously and calls the
-    /// appropriate method on your `Cni` implementation.
+    /// This method:
+    /// 1. Reads the `CNI_COMMAND` environment variable
+    /// 2. Routes to ADD/DEL/CHECK/VERSION based on the command
+    /// 3. Calls the appropriate method on your `Cni` implementation
+    /// 4. Writes the result to stdout in JSON format
     ///
     /// # Arguments
     ///
-    /// * `cni` - A reference to your async `Cni` trait implementation
+    /// * `cni` - A reference to your `Cni` trait implementation
     ///
     /// # Returns
     ///
-    /// Returns `Ok(())` on success.
+    /// Returns `Ok(())` on success, or an error if any step fails.
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - CNI environment variables are missing or invalid
-    /// - Network configuration is invalid
-    /// - CNI version is incompatible
-    /// - Your `Cni` implementation returns an error
-    /// - I/O errors occur
+    /// This method can return errors for various reasons:
+    /// - Missing or invalid CNI environment variables
+    /// - Invalid network configuration on stdin
+    /// - CNI version mismatch
+    /// - Errors from your `Cni` implementation
+    /// - I/O errors writing to stdout
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use async_trait::async_trait;
-    /// use rscni::{async_cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+    /// ```rust,no_run
+    /// # use rscni_plugin::{cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+    /// #
+    /// # struct MyPlugin;
+    /// # impl Cni for MyPlugin {
+    /// #     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     fn status(&self, _args: Args) -> Result<(), Error> { Ok(()) }
+    /// #     fn gc(&self, _args: Args) -> Result<(), Error> { Ok(()) }
+    /// # }
+    /// #
+    /// let plugin = Plugin::default();
+    /// let my_plugin = MyPlugin;
     ///
-    /// struct MyPlugin;
-    ///
-    /// #[async_trait]
-    /// impl Cni for MyPlugin {
-    ///     async fn add(&self, args: Args) -> Result<CNIResult, Error> {
-    ///         Ok(CNIResult::default())
-    ///     }
-    ///     async fn del(&self, args: Args) -> Result<CNIResult, Error> {
-    ///         Ok(CNIResult::default())
-    ///     }
-    ///     async fn check(&self, args: Args) -> Result<CNIResult, Error> {
-    ///         Ok(CNIResult::default())
-    ///     }
-    /// }
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let plugin = Plugin::default();
-    ///     let my_plugin = MyPlugin;
-    ///
-    ///     if let Err(e) = plugin.run(&my_plugin).await {
-    ///         eprintln!("Plugin failed: {}", e);
-    ///         std::process::exit(1);
-    ///     }
+    /// if let Err(e) = plugin.run(&my_plugin) {
+    ///     eprintln!("CNI plugin failed: {}", e);
+    ///     std::process::exit(1);
     /// }
     /// ```
-    #[allow(clippy::future_not_send)]
-    pub async fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
-        let res = self.inner_run::<T, OsEnv, StdIo>(cni).await?;
+    pub fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
+        let res = self.inner_run::<T, OsEnv, StdIo>(cni)?;
 
         StdIo::io_out()
             .write_all(res.as_bytes())
             .map_err(|e| Error::IOFailure(e.to_string()))
     }
 
-    #[allow(clippy::future_not_send)]
-    async fn inner_run<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<String, Error> {
-        let cmd = Cmd::get_from_env::<E>()?;
+    fn inner_run<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<String, Error> {
+        // An empty CNI_COMMAND is a human poking at the binary, not a runtime: answer
+        // with the about text instead of an error.
+        let Some(cmd) = cmd_from_env::<E>()? else {
+            return Ok(about_text(&self.info, self.msg.clone()));
+        };
 
         match cmd {
             Cmd::Add => {
@@ -312,7 +324,10 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                let res = cni.add(args).await?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                let res = cni.add(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Del => {
@@ -325,7 +340,10 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                let res = cni.del(args).await?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                let res = cni.del(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Check => {
@@ -338,7 +356,10 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                let res = cni.check(args).await?;
+                if let Some(conf) = args.config() {
+                    self.info.validate(&conf.cni_version)?;
+                }
+                let res = cni.check(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Status => {
@@ -351,7 +372,7 @@ impl Plugin {
                 if let Some(conf) = args.config() {
                     self.info.validate(&conf.cni_version)?;
                 }
-                cni.status(args).await?;
+                cni.status(args)?;
                 // STATUS returns no output on success
                 Ok(String::new())
             }
@@ -365,12 +386,17 @@ impl Plugin {
                 if let Some(conf) = args.config() {
                     self.info.validate(&conf.cni_version)?;
                 }
-                cni.gc(args).await?;
+                cni.gc(args)?;
                 // GC returns no output on success
                 Ok(String::new())
             }
-            Cmd::Version => self.info.version(),
-            Cmd::UnSet => Ok(self.info.about(self.msg.clone())),
+            Cmd::Version => version_json(&self.info),
+            // `Cmd` is `#[non_exhaustive]`: an operation added by a future CNI
+            // specification is not one this version of the library can dispatch.
+            cmd => Err(Error::InvalidEnvValue(format!(
+                "unsupported CNI_COMMAND: {}",
+                <&str>::from(cmd)
+            ))),
         }
     }
 }
@@ -402,7 +428,7 @@ mod tests {
             MOCK_ENV.with(|env| {
                 env.borrow()
                     .get(name)
-                    .ok_or_else(|| Error::InvalidEnvValue(format!("env var not found: {}", name)))
+                    .ok_or_else(|| Error::InvalidEnvValue(format!("env var not found: {name}")))
                     .and_then(|v| {
                         v.parse::<T>()
                             .map_err(|e| Error::InvalidEnvValue(e.to_string()))
@@ -413,7 +439,7 @@ mod tests {
 
     // Thread-local storage for mock I/O
     thread_local! {
-        static MOCK_INPUT: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        static MOCK_INPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     }
 
     struct MockIo;
@@ -466,9 +492,8 @@ mod tests {
     // Mock Cni implementation
     struct MockCni;
 
-    #[cfg_attr(feature = "async", async_trait)]
     impl Cni for MockCni {
-        async fn add(&self, _args: Args) -> Result<CNIResult, Error> {
+        fn add(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult {
                 interfaces: vec![Interface {
                     name: "eth0".to_string(),
@@ -501,30 +526,30 @@ mod tests {
             })
         }
 
-        async fn del(&self, _args: Args) -> Result<CNIResult, Error> {
+        fn del(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult::default())
         }
 
-        async fn check(&self, _args: Args) -> Result<CNIResult, Error> {
+        fn check(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult::default())
         }
 
-        async fn status(&self, _args: Args) -> Result<(), Error> {
+        fn status(&self, _args: Args) -> Result<(), Error> {
             Ok(())
         }
 
-        async fn gc(&self, _args: Args) -> Result<(), Error> {
+        fn gc(&self, _args: Args) -> Result<(), Error> {
             Ok(())
         }
     }
 
-    #[cfg(feature = "async")]
     #[rstest]
     #[case("ADD")]
     #[case("DEL")]
     #[case("CHECK")]
-    #[tokio::test]
-    async fn test_plugin_inner_run_commands(#[case] command: &str) {
+    fn test_plugin_inner_run_commands(
+        #[case] command: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         clear_mock_env();
         clear_mock_input();
 
@@ -541,54 +566,76 @@ mod tests {
             r#type: "test".to_string(),
             ..Default::default()
         };
-        set_mock_input(&serde_json::to_string(&config).unwrap());
+        set_mock_input(&serde_json::to_string(&config)?);
 
         let plugin = Plugin::default();
         let mock_cni = MockCni;
 
-        let result = plugin
+        let json_output = plugin
             .inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)
-            .await;
-        assert!(result.is_ok(), "Command {} should succeed", command);
-
-        let json_output = result.unwrap();
+            .map_err(|e| format!("Command {command} should succeed: {e}"))?;
         assert!(!json_output.is_empty());
+        Ok(())
     }
 
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn test_plugin_inner_run_version() {
+    #[test]
+    fn test_plugin_inner_run_version() -> Result<(), Box<dyn std::error::Error>> {
         clear_mock_env();
         set_mock_env("CNI_COMMAND", "VERSION");
 
         let plugin = Plugin::default();
         let mock_cni = MockCni;
 
-        let result = plugin
-            .inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)
-            .await;
-        assert!(result.is_ok());
-
-        let json_output = result.unwrap();
+        let json_output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)?;
         assert!(json_output.contains("cniVersion"));
         assert!(json_output.contains("supportedVersions"));
+        Ok(())
     }
 
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn test_plugin_inner_run_unset() {
+    #[test]
+    fn test_plugin_inner_run_unset() -> Result<(), Box<dyn std::error::Error>> {
         clear_mock_env();
         set_mock_env("CNI_COMMAND", "");
 
         let plugin = Plugin::default().msg("Test Plugin v1.0.0");
         let mock_cni = MockCni;
 
-        let result = plugin
-            .inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)
-            .await;
-        assert!(result.is_ok());
-
-        let output = result.unwrap();
+        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)?;
         assert!(output.contains("Test Plugin v1.0.0"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_version_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+        clear_mock_env();
+        clear_mock_input();
+
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+        set_mock_env("CNI_ARGS", "");
+
+        // Plugin supports 1.0.0, but config specifies 0.4.0
+        let config = NetConf {
+            cni_version: "0.4.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::new("1.0.0", vec!["1.0.0".to_string()]);
+        let mock_cni = MockCni;
+
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni);
+        assert!(result.is_err());
+        if let Err(Error::IncompatibleVersion(_)) = result {
+            // Expected error
+        } else {
+            panic!("Expected IncompatibleVersion error");
+        }
+        Ok(())
     }
 }

@@ -3,6 +3,16 @@ name: Publish to crates.io
 on:
   workflow_dispatch:
     inputs:
+      crate:
+        description: 'Crate to publish'
+        required: true
+        type: choice
+        # Add a crate here when it lands, not before: a name that is not a workspace
+        # member fails in the version check below rather than doing anything useful.
+        options:
+          - rscni-types
+          - rscni-plugin
+          - rscni
       version:
         description: 'Version to publish (e.g., 0.1.0)'
         required: true
@@ -18,48 +28,55 @@ env:
 
 jobs:
   publish:
-    name: Publish to crates.io
+    name: Publish ${{ inputs.crate }} to crates.io
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ inputs.crate }}-v${{ inputs.version }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # No-arg install resolves rust-toolchain.toml — the same pin rustup uses
+        # locally — including its components and profile. Documented rustup behavior
+        # since 1.28; the runners ship newer.
+        run: rustup toolchain install
 
+      # The root manifest is virtual and holds no version, so ask cargo which version
+      # the named crate actually declares.
       - name: Verify version
         run: |
-          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -er --arg c "${{ inputs.crate }}" '.packages[] | select(.name==$c) | .version')
           if [ "${{ inputs.version }}" != "$CARGO_VERSION" ]; then
-            echo "Error: Input version (${{ inputs.version }}) does not match Cargo.toml version ($CARGO_VERSION)"
+            echo "Error: Input version (${{ inputs.version }}) does not match ${{ inputs.crate }}'s Cargo.toml version ($CARGO_VERSION)"
             exit 1
           fi
-          echo "Version check passed: ${{ inputs.version }}"
+          echo "Version check passed: ${{ inputs.crate }} ${{ inputs.version }}"
 
-      - name: Verify tag exists
-        run: |
-          if ! git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "Error: Tag v${{ inputs.version }} does not exist"
-            exit 1
-          fi
-          echo "Tag v${{ inputs.version }} exists"
+      # No "verify tag exists" step: the checkout above already used the tag as its ref,
+      # so the job cannot get this far if it is missing.
 
+      # Same suite as the CI and release gates, so publishing cannot be held to a
+      # weaker bar than a PR.
       - name: Run tests
         run: |
-          cargo test --lib
-          cargo test --lib --features async
-          cargo test --doc
+          cargo test --workspace --lib
+          cargo test --workspace --lib --all-features
+          cargo test --workspace --doc --all-features
+          cargo build --package rscni-debug --package async-rscni-debug
+          cargo test --package integration-tests
 
+      # Dependencies must already be on crates.io: rscni-types before rscni-plugin,
+      # rscni-plugin before rscni. A missing one fails here rather than half-publishing.
       - name: Publish to crates.io
         run: |
           if [ "${{ inputs.dry-run }}" == "true" ]; then
             echo "🔍 Running in dry-run mode..."
-            cargo publish --dry-run
+            cargo publish --package ${{ inputs.crate }} --dry-run
             echo "✅ Dry-run completed successfully" >> $GITHUB_STEP_SUMMARY
           else
             echo "📦 Publishing to crates.io..."
-            cargo publish --token ${{ secrets.CRATES_TOKEN }}
+            cargo publish --package ${{ inputs.crate }} --token ${{ secrets.CRATES_TOKEN }}
             echo "✅ Published to crates.io" >> $GITHUB_STEP_SUMMARY
           fi
         env:
@@ -68,12 +85,12 @@ jobs:
       - name: Summary
         run: |
           if [ "${{ inputs.dry-run }}" == "true" ]; then
-            echo "🔍 Dry-run completed for rscni v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "🔍 Dry-run completed for ${{ inputs.crate }} v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "No changes were made to crates.io. To publish, run the workflow again with dry-run disabled." >> $GITHUB_STEP_SUMMARY
           else
-            echo "✅ Successfully published rscni v${{ inputs.version }} to crates.io" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Successfully published ${{ inputs.crate }} v${{ inputs.version }} to crates.io" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- crates.io: https://crates.io/crates/rscni/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-            echo "- docs.rs: https://docs.rs/rscni/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "- crates.io: https://crates.io/crates/${{ inputs.crate }}/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "- docs.rs: https://docs.rs/${{ inputs.crate }}/${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
           fi

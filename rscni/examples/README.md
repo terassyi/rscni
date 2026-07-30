@@ -21,17 +21,19 @@ Please refer to [netconf.json](./netconf.json) to see the complete CNI configura
 ## Run
 
 We can try to use `rscni-debug` in the kind cluster.
-To use async version(`async-rscni-debug`), please run `make start ASYNC=true`.
+The recipes live in the [justfile](./justfile) next to this README — run them from this
+directory, or as `just examples::kind-up` from the repository root.
+To use async version(`async-rscni-debug`), please run `just kind-up async-rscni-debug`.
 
 ```console
 $ # Build a rscni-debug binary
 $ # Start kind cluster
-$ # Copy netconf.json to the container
 $ # Copy rscni-debug to the container
-$ make start
-cargo build --release --example rscni-debug
+$ # Copy netconf.json to the container
+$ just kind-up
+cargo build --release --package rscni-debug
 (snip)
-    Finished release [optimized] target(s) in 5.25s
+    Finished `release` profile [optimized] target(s) in 5.25s
 kind create cluster
 Creating cluster "kind" ...
  ✓ Ensuring node image (kindest/node:v1.26.3) 🖼
@@ -46,9 +48,9 @@ You can now use your cluster with:
 kubectl cluster-info --context kind-kind
 
 Thanks for using kind! 😊
-docker cp ../target/release/examples//rscni-debug kind-control-plane:/opt/cni/bin/rscni-debug
+docker cp ../../target/release/rscni-debug kind-control-plane:/opt/cni/bin/rscni-debug
 Successfully copied 5.12MB to kind-control-plane:/opt/cni/bin/rscni-debug
-docker cp ./netconf.json kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
+docker cp netconf.json kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
 Successfully copied 2.56kB to kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
 $ # wait for creating some pods.
 $ kubectl get pod -A
@@ -82,4 +84,6 @@ STDIN_DATA: {"cniVersion":"0.3.1","name":"kindnet","type":"rscni-debug","prevRes
 --------------------
 ```
 
-To clean up kind cluter, run `make stop`.
+`just kind-output` prints the same output without exec'ing into the node yourself.
+
+To clean up kind cluster, run `just kind-down`.

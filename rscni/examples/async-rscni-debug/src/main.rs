@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use async_trait::async_trait;
-use rscni::{
+use rscni_plugin::{
     async_cni::{Cni, Plugin},
     error::Error,
     types::{Args, CNIResult},
@@ -23,10 +23,13 @@ async fn main() {
         cni_output: PathBuf::from(OUTPUT_FILE_PATH),
     };
 
-    plugin
-        .run(&debug_conf)
-        .await
-        .expect("Failed to complete the CNI call");
+    // Report the failure and exit with the error's CNI code instead of panicking: a
+    // panic hands the runtime a backtrace and exit code 101, neither of which is part
+    // of the CNI conversation.
+    if let Err(err) = plugin.run(&debug_conf).await {
+        eprintln!("{err}: {}", err.details());
+        std::process::exit(i32::try_from(u32::from(&err)).unwrap_or(1));
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,7 +64,7 @@ impl Cni for DebugConf {
 
 impl DebugConf {
     async fn open_file(&self, container_id: &str, cmd: &str) -> Result<tokio::fs::File, Error> {
-        tokio::fs::create_dir_all(self.cni_output.as_os_str().to_str().unwrap())
+        tokio::fs::create_dir_all(&self.cni_output)
             .await
             .map_err(|e| {
                 Error::Custom(
