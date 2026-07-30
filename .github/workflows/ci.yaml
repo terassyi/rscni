@@ -15,7 +15,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Setup rust toolchain
         # No-arg install resolves rust-toolchain.toml — the same pin rustup uses
-        # locally — including its components and profile.
+        # locally — including its components and profile. Documented rustup behavior
+        # since 1.28; the runners ship newer.
         run: rustup toolchain install
       - name: Cache cargo registry
         uses: actions/cache@v4

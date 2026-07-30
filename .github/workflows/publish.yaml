@@ -36,6 +36,9 @@ jobs:
           ref: ${{ inputs.crate }}-v${{ inputs.version }}
 
       - name: Setup Rust toolchain
+        # No-arg install resolves rust-toolchain.toml — the same pin rustup uses
+        # locally — including its components and profile. Documented rustup behavior
+        # since 1.28; the runners ship newer.
         run: rustup toolchain install
 
       # The root manifest is virtual and holds no version, so ask cargo which version
