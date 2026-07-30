@@ -7,7 +7,7 @@ use rscni_types::{
 };
 
 use crate::{
-    args::{Args, ArgsBuilder, cmd_from_env, required_config},
+    args::{Args, ArgsBuilder, cmd_from_env},
     util::{Env, Io, OsEnv, StdIo, about_text, version_json},
 };
 
@@ -215,6 +215,12 @@ impl Plugin {
     /// * `ver` - The primary CNI version this plugin uses (e.g., "1.1.0")
     /// * `versions` - List of all CNI versions this plugin supports
     ///
+    /// Note that the ADD success output is always serialized in the specification's
+    /// current result layout (`interfaces`/`ips`/`routes`/`dns`); the framework does
+    /// not convert results to the pre-0.3.0 `ip4`/`ip6` layout those spec versions
+    /// define. Listing a version before 0.3.0 in `versions` therefore produces ADD
+    /// results consumers of that version cannot decode.
+    ///
     /// # Example
     ///
     /// ```rust
@@ -342,11 +348,9 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                let conf = required_config(&args)?;
-                self.info.validate(&conf.cni_version)?;
                 // The spec requires the ADD result to carry a `cniVersion` key echoing
                 // the version supplied on input.
-                let cni_version = conf.cni_version.clone();
+                let cni_version = self.info.negotiate((&args).try_into()?, cmd)?;
                 let res = cni.add(args)?;
                 let res = CNIResultWithCNIVersion::new(cni_version, res);
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
@@ -361,7 +365,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                self.info.validate(&required_config(&args)?.cni_version)?;
+                self.info.negotiate((&args).try_into()?, cmd)?;
                 // The spec defines no success output for DEL; the returned value is
                 // kept in the trait for API compatibility but is not written out.
                 cni.del(args)?;
@@ -377,7 +381,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                self.info.validate(&required_config(&args)?.cni_version)?;
+                self.info.negotiate((&args).try_into()?, cmd)?;
                 // The spec defines no success output for CHECK; the returned value is
                 // kept in the trait for API compatibility but is not written out.
                 cni.check(args)?;
@@ -390,7 +394,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                self.info.validate(&required_config(&args)?.cni_version)?;
+                self.info.negotiate((&args).try_into()?, cmd)?;
                 cni.status(args)?;
                 // STATUS returns no output on success
                 Ok(String::new())
@@ -402,7 +406,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                self.info.validate(&required_config(&args)?.cni_version)?;
+                self.info.negotiate((&args).try_into()?, cmd)?;
                 cni.gc(args)?;
                 // GC returns no output on success
                 Ok(String::new())
@@ -794,6 +798,141 @@ mod tests {
         } else {
             panic!("Expected IncompatibleVersion error");
         }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("CHECK", "0.3.1", "config version does not allow CHECK")]
+    #[case("GC", "1.0.0", "config version does not allow GC")]
+    #[case("STATUS", "1.0.0", "config version does not allow STATUS")]
+    fn test_plugin_inner_run_operation_floor(
+        #[case] command: &str,
+        #[case] config_version: &str,
+        #[case] expected_details: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // The config versions here are all in the default plugin's supported list, so
+        // what must reject them is the operation floor (CHECK exists only from 0.4.0,
+        // GC and STATUS from 1.1.0), not the supported-version membership check.
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", command);
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+        let config = NetConf {
+            cni_version: config_version.to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        match result {
+            Err(Error::IncompatibleVersion(details)) => assert_eq!(details, expected_details),
+            other => panic!("expected IncompatibleVersion, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("CHECK", "0.4.0")]
+    #[case("GC", "1.1.0")]
+    #[case("STATUS", "1.1.0")]
+    fn test_plugin_inner_run_operation_floor_boundary_accepted(
+        #[case] command: &str,
+        #[case] config_version: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // The exact floor version must dispatch: an off-by-one in the gate would
+        // reject 1.1.0 — the only version a real runtime (libcni) ever issues GC and
+        // STATUS with — and no other test dispatches these operations successfully.
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", command);
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+        let config = NetConf {
+            cni_version: config_version.to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
+        // The spec defines no success output for any of these operations.
+        assert!(output.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_missing_cni_version_means_010() {
+        // `cniVersion` was only added to the config format in spec 0.2.0: its absence
+        // means 0.1.0, which the default plugin does not support — error code 1, not a
+        // decode failure.
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_input(r#"{"name":"test-network","type":"test"}"#);
+
+        let plugin = Plugin::default();
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(matches!(result, Err(Error::IncompatibleVersion(_))));
+    }
+
+    #[test]
+    fn test_plugin_inner_run_missing_cni_version_add_echoes_010()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // A plugin that does support 0.1.0 serves the version-less config, and the ADD
+        // result echoes the implied 0.1.0.
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_input(r#"{"name":"test-network","type":"test"}"#);
+
+        let plugin = Plugin::new("1.1.0", vec!["0.1.0".to_string(), "1.1.0".to_string()]);
+        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
+        let parsed: serde_json::Value = serde_json::from_str(&output)?;
+        assert_eq!(parsed["cniVersion"], "0.1.0");
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("ADD")]
+    #[case("CHECK")]
+    fn test_plugin_inner_run_malformed_cni_version(
+        #[case] command: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // The declared version is parsed once at the config boundary, so a version
+        // that cannot parse is a decode failure (error code 6) on every operation.
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", command);
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        let config = NetConf {
+            cni_version: "not-a-version".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(matches!(result, Err(Error::FailedToDecode(_))));
         Ok(())
     }
 }
