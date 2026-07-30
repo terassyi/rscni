@@ -14,8 +14,9 @@ Each crate is versioned and released independently. Tags are `<crate>-v<version>
 | `rscni-runtime` (planned) | `rscni/runtime` | `rscni-runtime-v0.1.0` |
 
 When a crate is added, it needs adding to the root `members`, to `publish.yaml`'s `crate`
-choices, and to the `cargo package` list in `justfile` / `ci.yaml` / `release.yaml`. The
-test and lint commands use `--workspace` and pick it up on their own.
+choices, to the `cargo package` list in `justfile` / `ci.yaml` / `release.yaml`, and as a
+row in `ci.yaml`'s unit-test matrix. The lint command and `release.yaml`'s tests use
+`--workspace` and pick it up on their own.
 
 Tags `v0.1.0` through `v0.2.1` predate the workspace split and used a bare-version scheme.
 They are left as they are; `release.yaml` only matches the new form.
