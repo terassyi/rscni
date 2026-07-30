@@ -120,7 +120,7 @@ fn test_version_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn st
     let plugin_path = build_plugin(plugin_type)?;
 
     let net_conf = format!(
-        r#"{{"cniVersion":"1.3.0","name":"test","type":"{}"}}"#,
+        r#"{{"cniVersion":"1.1.0","name":"test","type":"{}"}}"#,
         plugin_type.name()
     );
 
@@ -143,7 +143,7 @@ fn test_add_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std::e
 
     let net_conf = format!(
         r#"{{
-        "cniVersion": "1.3.0",
+        "cniVersion": "1.1.0",
         "name": "test-network",
         "type": "{}",
         "cniOutput": "{}"
@@ -192,7 +192,7 @@ fn test_del_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std::e
 
     let net_conf = format!(
         r#"{{
-        "cniVersion": "1.3.0",
+        "cniVersion": "1.1.0",
         "name": "test-network",
         "type": "{}",
         "cniOutput": "{}"
@@ -238,7 +238,7 @@ fn test_check_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std:
 
     let net_conf = format!(
         r#"{{
-        "cniVersion": "1.3.0",
+        "cniVersion": "1.1.0",
         "name": "test-network",
         "type": "{}",
         "cniOutput": "{}"
@@ -278,7 +278,7 @@ fn test_cni_version_compatibility_helper(
     let temp_dir = tempfile::tempdir()?;
     let output_dir = temp_dir.path().to_path_buf();
 
-    for version in &["1.0.0", "1.1.0", "1.3.0"] {
+    for version in &["0.4.0", "1.0.0", "1.1.0"] {
         let net_conf = format!(
             r#"{{"cniVersion":"{}","name":"test","type":"{}","cniOutput":"{}"}}"#,
             version,
@@ -325,7 +325,7 @@ fn test_with_prev_result_helper(plugin_type: PluginType) -> Result<(), Box<dyn s
 
     let net_conf = format!(
         r#"{{
-        "cniVersion": "1.3.0",
+        "cniVersion": "1.1.0",
         "name": "test-network",
         "type": "{}",
         "cniOutput": "{}",

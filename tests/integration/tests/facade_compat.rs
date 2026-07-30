@@ -59,7 +59,7 @@ impl Cni for SyncPlugin {
 #[test]
 fn sync_plugin_builds_through_the_facade() -> Result<(), Box<dyn std::error::Error>> {
     let _default = Plugin::default();
-    let _custom = Plugin::new("1.3.0", vec!["1.0.0".to_string(), "1.3.0".to_string()]);
+    let _custom = Plugin::new("1.1.0", vec!["1.0.0".to_string(), "1.1.0".to_string()]);
     let _with_msg = Plugin::default().msg("compat");
 
     // `run()` reads the CNI_* environment and stdin, so it is not called here. The point
