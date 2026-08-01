@@ -140,26 +140,27 @@ impl Error {
 }
 
 impl std::fmt::Display for Error {
+    /// The specification's wire `msg`: a short message characterizing the error. For
+    /// the reserved variants this is the spec's fixed wording; for [`Error::Custom`]
+    /// it is the raw message as given, with no decoration — this string goes on the
+    /// wire verbatim, so it must survive serialize/deserialize round trips unchanged.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IncompatibleVersion(_) => write!(f, "Incompatible CNI version"),
-            Self::UnsupportedNetworkConfiguration(_) => {
-                write!(f, "Unsupported network configuration")
-            }
-            Self::NotExist(_) => write!(f, "Container does not exist"),
-            Self::InvalidEnvValue(_) => {
-                write!(f, "Invalid necessary environment variables")
-            }
-            Self::IOFailure(_) => write!(f, "I/O failure"),
-            Self::FailedToDecode(_) => write!(f, "Failed to decode content"),
-            Self::InvalidNetworkConfig(_) => write!(f, "Invalid network config"),
-            Self::TryAgainLater(_) => write!(f, "Try again later"),
-            Self::PluginNotAvailable(_) => write!(f, "Plugin not available"),
+        let msg = match self {
+            Self::IncompatibleVersion(_) => "Incompatible CNI version",
+            Self::UnsupportedNetworkConfiguration(_) => "Unsupported network configuration",
+            Self::NotExist(_) => "Container does not exist",
+            Self::InvalidEnvValue(_) => "Invalid necessary environment variables",
+            Self::IOFailure(_) => "I/O failure",
+            Self::FailedToDecode(_) => "Failed to decode content",
+            Self::InvalidNetworkConfig(_) => "Invalid network config",
+            Self::TryAgainLater(_) => "Try again later",
+            Self::PluginNotAvailable(_) => "Plugin not available",
             Self::PluginNotAvailableLimitedConnectivity(_) => {
-                write!(f, "Plugin not available, limited connectivity")
+                "Plugin not available, limited connectivity"
             }
-            Self::Custom(_, msg, _) => write!(f, "Custom error: {msg}"),
-        }
+            Self::Custom(_, msg, _) => msg,
+        };
+        f.write_str(msg)
     }
 }
 
@@ -231,6 +232,8 @@ mod tests {
     }
 
     #[rstest]
+    // 100 is the boundary: the spec reserves 0-99, so 100 itself is already custom.
+    #[case(100, "Boundary custom", "first plugin-defined code")]
     #[case(101, "Custom error", "custom details")]
     #[case(200, "Another custom", "more details")]
     fn test_error_result_to_error_conversion_custom(
@@ -265,5 +268,38 @@ mod tests {
         let error = Error::from(&error_result);
         assert!(matches!(error, Error::FailedToDecode(_)));
         assert!(error.details().contains("unknown error code: 99"));
+    }
+
+    #[rstest]
+    #[case(
+        Error::InvalidEnvValue("CNI_NETNS is required".to_string()),
+        4,
+        "Invalid necessary environment variables"
+    )]
+    #[case(Error::TryAgainLater("resource busy".to_string()), 11, "Try again later")]
+    // A custom error's wire msg is its raw message as given: `Display` is defined as
+    // the wire msg, so it must carry no decoration that would accumulate on every
+    // wire crossing.
+    #[case(Error::Custom(100, "custom".to_string(), "details".to_string()), 100, "custom")]
+    fn test_error_result_new_round_trips(
+        #[case] error: Error,
+        #[case] code: u32,
+        #[case] wire_msg: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let result = ErrorResult::new("1.1.0", &error);
+        let json: serde_json::Value = serde_json::from_str(&serde_json::to_string(&result)?)?;
+        assert_eq!(json["cniVersion"], "1.1.0");
+        assert_eq!(json["code"], code);
+        assert_eq!(json["msg"], wire_msg);
+        assert_eq!(json["details"], error.details());
+
+        // Reading its own wire form back yields an error with the same code and
+        // details, and re-emitting that error reproduces the same wire msg — the
+        // representation is stable across round trips.
+        let read_back = Error::from(&result);
+        assert_eq!(u32::from(&read_back), code);
+        assert_eq!(read_back.details(), error.details());
+        assert_eq!(ErrorResult::new("1.1.0", &read_back).msg, wire_msg);
+        Ok(())
     }
 }

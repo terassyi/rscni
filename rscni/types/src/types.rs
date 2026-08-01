@@ -345,13 +345,11 @@ pub enum Protocol {
     Udp,
 }
 
-/// `ErrorResult` is converted from Error.
-/// This is actual data structure of Error CNI Result Type.
+/// The wire form of the CNI error result type.
 ///
-/// This is the read side of the CNI error protocol: a runtime deserializes it from a
-/// failed plugin's stdout and converts it with `Error::from(&result)`. There is no
-/// public constructor yet because nothing in this workspace *produces* the error JSON —
-/// when the plugin side grows that emit path, it gets a constructor along with it.
+/// Both sides of the error protocol go through this type: a failing plugin serializes
+/// it to stdout (built with [`ErrorResult::new`]), and a runtime deserializes a failed
+/// plugin's stdout into it and converts it back with `Error::from(&result)`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorResult {
@@ -365,9 +363,29 @@ pub struct ErrorResult {
     pub(crate) details: String,
 }
 
+impl ErrorResult {
+    /// Builds the wire form of `error`, reported under `cni_version`.
+    ///
+    /// The code comes from the error's CNI error code, the message from its `Display`
+    /// form (which is defined as the wire `msg`), and the details from
+    /// [`Error::details`]. Note the spec reserves codes 0-99; an [`Error::Custom`]
+    /// carrying a reserved code is serialized as-is, and a runtime reading it back
+    /// will interpret it as the reserved meaning.
+    #[must_use]
+    pub fn new(cni_version: impl Into<String>, error: &Error) -> Self {
+        Self {
+            cni_version: cni_version.into(),
+            code: u32::from(error),
+            msg: error.to_string(),
+            details: error.details(),
+        }
+    }
+}
+
 impl From<&ErrorResult> for Error {
     fn from(res: &ErrorResult) -> Self {
-        if res.code > 100 {
+        // The spec reserves 0-99; every code from 100 up is plugin-defined.
+        if res.code >= 100 {
             return Self::Custom(res.code, res.msg.clone(), res.details.clone());
         }
         match res.code {
