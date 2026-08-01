@@ -7,7 +7,7 @@ use rscni_types::{
 };
 
 use crate::{
-    args::{Args, ArgsBuilder, cmd_from_env},
+    args::{Args, ArgsBuilder, cmd_from_env, required_config},
     util::{Env, Io, OsEnv, StdIo, about_text, version_json},
 };
 
@@ -324,9 +324,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                if let Some(conf) = args.config() {
-                    self.info.validate(&conf.cni_version)?;
-                }
+                self.info.validate(&required_config(&args)?.cni_version)?;
                 let res = cni.add(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
@@ -340,9 +338,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                if let Some(conf) = args.config() {
-                    self.info.validate(&conf.cni_version)?;
-                }
+                self.info.validate(&required_config(&args)?.cni_version)?;
                 let res = cni.del(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
@@ -356,9 +352,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                if let Some(conf) = args.config() {
-                    self.info.validate(&conf.cni_version)?;
-                }
+                self.info.validate(&required_config(&args)?.cni_version)?;
                 let res = cni.check(args)?;
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
@@ -369,9 +363,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                if let Some(conf) = args.config() {
-                    self.info.validate(&conf.cni_version)?;
-                }
+                self.info.validate(&required_config(&args)?.cni_version)?;
                 cni.status(args)?;
                 // STATUS returns no output on success
                 Ok(String::new())
@@ -383,9 +375,7 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                if let Some(conf) = args.config() {
-                    self.info.validate(&conf.cni_version)?;
-                }
+                self.info.validate(&required_config(&args)?.cni_version)?;
                 cni.gc(args)?;
                 // GC returns no output on success
                 Ok(String::new())
@@ -603,6 +593,25 @@ mod tests {
         let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)?;
         assert!(output.contains("Test Plugin v1.0.0"));
         Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_null_stdin_rejected() {
+        // A stdin of literal JSON `null` deserializes to no configuration without a
+        // decode error; it must be rejected, not treated as "nothing to validate".
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+        set_mock_env("CNI_ARGS", "");
+        set_mock_input("null");
+
+        let plugin = Plugin::default();
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(matches!(result, Err(Error::InvalidNetworkConfig(_))));
     }
 
     #[test]

@@ -20,6 +20,20 @@ use rscni_types::{
 
 use crate::util::{Env, Io};
 
+/// Returns the network configuration, which every dispatchable operation requires on
+/// stdin.
+///
+/// This must be a hard error rather than a skipped branch: a stdin of literal JSON
+/// `null` deserializes into *no configuration* without a decode error, and treating
+/// that as "nothing to validate" would bypass version negotiation entirely and hand
+/// the `Cni` implementation an `Args` the specification says cannot exist.
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn required_config(args: &Args) -> Result<&NetConf, Error> {
+    args.config().ok_or_else(|| {
+        Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
+    })
+}
+
 /// Reads the `CNI_COMMAND` environment variable.
 ///
 /// `Ok(None)` means the variable is set but empty — the plugin prints its about text in
