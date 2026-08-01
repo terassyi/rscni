@@ -59,7 +59,11 @@ impl PluginInfo {
         &self.supported_versions
     }
 
-    /// Checks that `ver` is a version this plugin can speak.
+    /// Checks that `ver` is a version this plugin can speak — a member of
+    /// [`supported_versions`](Self::supported_versions), which is the whole test the
+    /// reference implementation's reconciler applies. The plugin's own
+    /// [`cni_version`](Self::cni_version) grants nothing by itself: it describes the
+    /// plugin's VERSION output, not an implicit extra supported entry.
     ///
     /// A runtime uses this against the [`PluginInfo`] it got back from `VERSION` to
     /// confirm a plugin can handle the `cniVersion` in a network configuration before
@@ -67,15 +71,14 @@ impl PluginInfo {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::IncompatibleVersion`] if `ver` is neither this plugin's own
-    /// version nor one of its supported versions.
+    /// Returns [`Error::IncompatibleVersion`] if `ver` is not a supported version.
+    /// The details name the supported set — like the reference implementation's
+    /// wording — so a runtime's diagnostics show what would have been accepted.
     pub fn validate(&self, ver: &str) -> Result<(), Error> {
-        if self.cni_version.eq(ver) {
-            return Ok(());
-        }
         if !self.supported_versions.iter().any(|p| p.eq(ver)) {
             return Err(Error::IncompatibleVersion(format!(
-                "{ver} is the incompatible version"
+                "config is \"{ver}\", plugin supports {:?}",
+                self.supported_versions
             )));
         }
         Ok(())
@@ -214,32 +217,27 @@ mod tests {
     use crate::error::Error;
     use rstest::rstest;
 
-    #[test]
-    fn plugin_info_validate() {
-        let plugin_info = PluginInfo {
-            cni_version: "1.1.0".to_string(),
-            supported_versions: vec![
-                "0.3.1".to_string(),
-                "0.4.0".to_string(),
-                "1.0.0".to_string(),
-                "1.1.0".to_string(),
-            ],
-        };
-
-        let same_version = "1.1.0";
-
-        let res = plugin_info.validate(same_version);
-        assert!(res.is_ok());
-
-        let other_compatible_version = "1.0.0";
-
-        let res = plugin_info.validate(other_compatible_version);
-        assert!(res.is_ok());
-
-        let incompatible_version = "0.1.0";
-
-        let res = plugin_info.validate(incompatible_version);
-        assert!(res.is_err());
+    #[rstest]
+    #[case(PluginInfo::default(), "1.1.0", true)]
+    #[case(PluginInfo::default(), "1.0.0", true)]
+    #[case(PluginInfo::default(), "0.1.0", false)]
+    // The reference reconciler consults the supported list alone: the plugin's own
+    // version is not an implicit extra entry.
+    #[case(PluginInfo::new("1.1.0", vec!["1.0.0".to_string()]), "1.1.0", false)]
+    fn plugin_info_validate(#[case] info: PluginInfo, #[case] ver: &str, #[case] ok: bool) {
+        match info.validate(ver) {
+            Ok(()) => assert!(ok, "{ver} must be rejected"),
+            Err(Error::IncompatibleVersion(details)) => {
+                assert!(!ok, "{ver} must be accepted, got: {details}");
+                // The details must name the rejected version and the supported set.
+                assert!(
+                    details.contains(&format!("\"{ver}\""))
+                        && details.contains(&format!("{:?}", info.supported_versions())),
+                    "got: {details}"
+                );
+            }
+            Err(other) => panic!("unexpected error variant: {other:?}"),
+        }
     }
 
     #[rstest]
