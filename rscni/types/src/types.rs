@@ -18,7 +18,7 @@ use std::{collections::HashMap, str::FromStr};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::Error;
+use crate::{error::Error, version::SpecVersion};
 
 /// Name of the environment variable carrying the requested operation. See [`Cmd`].
 pub const CNI_COMMAND: &str = "CNI_COMMAND";
@@ -91,6 +91,9 @@ impl From<Cmd> for &str {
 #[serde(rename_all = "camelCase")]
 pub struct NetConf {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
+    /// The key was only added to the format in spec 0.2.0, so it may be absent; an
+    /// absent or empty value means 0.1.0.
+    #[serde(default)]
     pub cni_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cni_versions: Option<Vec<String>>,
@@ -136,11 +139,38 @@ pub struct NetConf {
     pub custom: HashMap<String, Value>,
 }
 
+impl NetConf {
+    /// Returns the CNI specification version this configuration declares, parsed;
+    /// the implied 0.1.0 when the field is empty or absent (`cniVersion` was only
+    /// added to the format in 0.2.0, and the reference implementation decodes its
+    /// absence as 0.1.0 rather than rejecting the config).
+    ///
+    /// Parsing here rather than passing the raw string around means a malformed
+    /// version fails once, at this boundary, for every operation alike; the trade-off
+    /// is that formatting the result yields the canonical three-component form (see
+    /// [`SpecVersion`]'s `Display`), not necessarily the string as spelled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::FailedToDecode`] if the declared version is malformed.
+    pub fn version(&self) -> Result<SpecVersion, Error> {
+        let declared = if self.cni_version.is_empty() {
+            "0.1.0"
+        } else {
+            &self.cni_version
+        };
+        declared.parse()
+    }
+}
+
 /// `NetConfList` is a network configuration format for administrators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetConfList {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
+    /// The key was only added to the format in spec 0.2.0, so it may be absent; an
+    /// absent or empty value means 0.1.0.
+    #[serde(default)]
     pub cni_version: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cni_versions: Vec<String>,
@@ -470,6 +500,17 @@ mod tests {
         let deserialized: GcAttachment = serde_json::from_str(&json)?;
         assert_eq!(deserialized.container_id, "container-123");
         assert_eq!(deserialized.ifname, "eth0");
+        Ok(())
+    }
+
+    #[test]
+    fn test_net_conf_without_cni_version() -> Result<(), Box<dyn std::error::Error>> {
+        // `cniVersion` was only added to the config format in spec 0.2.0, so a config
+        // may omit it; that must not be a decode failure, and the effective version is
+        // the implied 0.1.0.
+        let conf: NetConf = serde_json::from_str(r#"{"name":"test-network","type":"bridge"}"#)?;
+        assert_eq!(conf.cni_version, "");
+        assert_eq!(conf.version()?.to_string(), "0.1.0");
         Ok(())
     }
 

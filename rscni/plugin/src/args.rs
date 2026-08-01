@@ -20,20 +20,6 @@ use rscni_types::{
 
 use crate::util::{Env, Io};
 
-/// Returns the network configuration, which every dispatchable operation requires on
-/// stdin.
-///
-/// This must be a hard error rather than a skipped branch: a stdin of literal JSON
-/// `null` deserializes into *no configuration* without a decode error, and treating
-/// that as "nothing to validate" would bypass version negotiation entirely and hand
-/// the `Cni` implementation an `Args` the specification says cannot exist.
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn required_config(args: &Args) -> Result<&NetConf, Error> {
-    args.config().ok_or_else(|| {
-        Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
-    })
-}
-
 /// Reads the `CNI_COMMAND` environment variable.
 ///
 /// `Ok(None)` means the variable is unset or empty; the dispatcher decides what absence
@@ -111,6 +97,25 @@ impl Args {
     #[must_use]
     pub const fn config(&self) -> Option<&NetConf> {
         self.config.as_ref()
+    }
+}
+
+/// Every dispatchable operation requires the network configuration on stdin, so
+/// dispatch converts `Args` into the [`NetConf`] it must contain, failing with
+/// [`Error::InvalidNetworkConfig`] (error code 7) when it is absent.
+///
+/// The absence must be a hard error rather than a skipped check: a stdin of literal
+/// JSON `null` deserializes into *no configuration* without a decode error, and
+/// treating that as "nothing to validate" would bypass version negotiation entirely
+/// and hand the [`Cni`](crate::cni::Cni) implementation an `Args` the specification
+/// says cannot exist.
+impl<'a> TryFrom<&'a Args> for &'a NetConf {
+    type Error = Error;
+
+    fn try_from(args: &'a Args) -> Result<Self, Self::Error> {
+        args.config().ok_or_else(|| {
+            Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
+        })
     }
 }
 
