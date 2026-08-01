@@ -227,11 +227,11 @@ fn test_del_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std::e
 
     assert!(success, "Plugin failed: {stderr}");
 
-    // DEL should return empty or default result
-    if !stdout.trim().is_empty() {
-        let result: Value = serde_json::from_str(&stdout)?;
-        assert!(result.is_object());
-    }
+    // The spec defines success output only for ADD (and VERSION).
+    assert!(
+        stdout.is_empty(),
+        "DEL must produce no success output, got: {stdout}"
+    );
 
     // Verify debug file
     let debug_file = output_dir.join(format!("{container_id}-Del"));
@@ -291,7 +291,7 @@ fn test_check_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std:
     );
 
     let container_id = format!("{}-container-789", plugin_type.name());
-    let (success, _stdout, stderr) = run_plugin(
+    let (success, stdout, stderr) = run_plugin(
         &plugin_path,
         Cmd::Check,
         &net_conf,
@@ -302,6 +302,12 @@ fn test_check_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std:
     )?;
 
     assert!(success, "Plugin failed: {stderr}");
+
+    // The spec defines success output only for ADD (and VERSION).
+    assert!(
+        stdout.is_empty(),
+        "CHECK must produce no success output, got: {stdout}"
+    );
 
     // Verify debug file
     let debug_file = output_dir.join(format!("{container_id}-Check"));
