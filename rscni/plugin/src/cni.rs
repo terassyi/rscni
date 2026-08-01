@@ -2,7 +2,7 @@ use std::io::Write;
 
 use rscni_types::{
     error::Error,
-    types::{CNIResult, Cmd},
+    types::{CNIResult, CNIResultWithCNIVersion, Cmd},
     version::PluginInfo,
 };
 
@@ -327,8 +327,13 @@ impl Plugin {
                     .config()?
                     .validate(cmd)?
                     .build()?;
-                self.info.validate(&required_config(&args)?.cni_version)?;
+                let conf = required_config(&args)?;
+                self.info.validate(&conf.cni_version)?;
+                // The spec requires the ADD result to carry a `cniVersion` key echoing
+                // the version supplied on input.
+                let cni_version = conf.cni_version.clone();
                 let res = cni.add(args)?;
+                let res = CNIResultWithCNIVersion::new(cni_version, res);
                 serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
             }
             Cmd::Del => {
@@ -567,6 +572,31 @@ mod tests {
             .inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)
             .map_err(|e| format!("Command {command} should succeed: {e}"))?;
         assert!(!json_output.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_add_echoes_cni_version() -> Result<(), Box<dyn std::error::Error>> {
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        let config = NetConf {
+            cni_version: "1.0.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
+
+        // The spec: the ADD result must carry the cniVersion supplied on input.
+        let parsed: serde_json::Value = serde_json::from_str(&output)?;
+        assert_eq!(parsed["cniVersion"], "1.0.0");
         Ok(())
     }
 

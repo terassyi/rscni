@@ -254,14 +254,41 @@ pub struct CNIResult {
     pub dns: Option<Dns>,
 }
 
-/// `CNIResultWithCNIVersion` represents actual output of CNI success result type as a JSON format.
-/// Users don't have to use this type directly.
+/// The wire form of a successful ADD result: a [`CNIResult`] plus the `cniVersion` key
+/// the spec requires ("The same version supplied on input").
+///
+/// A plugin serializes this to stdout on a successful ADD; a runtime deserializes a
+/// plugin's ADD output into it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CNIResultWithCNIVersion {
     pub cni_version: String,
     #[serde(flatten)]
     inner: CNIResult,
+}
+
+impl CNIResultWithCNIVersion {
+    /// Wraps a result with the `cniVersion` it should be reported under — per the
+    /// spec, the version supplied in the input configuration.
+    #[must_use]
+    pub fn new(cni_version: impl Into<String>, result: CNIResult) -> Self {
+        Self {
+            cni_version: cni_version.into(),
+            inner: result,
+        }
+    }
+
+    /// Returns the wrapped result.
+    #[must_use]
+    pub const fn result(&self) -> &CNIResult {
+        &self.inner
+    }
+
+    /// Unwraps into the plain result, discarding the version.
+    #[must_use]
+    pub fn into_result(self) -> CNIResult {
+        self.inner
+    }
 }
 
 /// The interface created by the attachment, including any host-level interfaces.
