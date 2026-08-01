@@ -307,10 +307,13 @@ impl Plugin {
     }
 
     fn inner_run<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<String, Error> {
-        // An empty CNI_COMMAND is a human poking at the binary, not a runtime: answer
-        // with the about text instead of an error.
+        // CNI_COMMAND is required for every operation, so unset (or empty, which the
+        // spec's reference implementation treats identically) is error code 4 on the
+        // wire. The about text still goes to stderr: a human poking at the binary gets
+        // help, and stderr is the diagnostics channel, so runtimes are unaffected.
         let Some(cmd) = cmd_from_env::<E>()? else {
-            return Ok(about_text(&self.info, self.msg.clone()));
+            let _ = I::io_err().write_all(about_text(&self.info, self.msg.clone()).as_bytes());
+            return Err(Error::InvalidEnvValue("CNI_COMMAND is not set".to_string()));
         };
 
         match cmd {
@@ -410,19 +413,18 @@ mod tests {
     struct MockEnv;
 
     impl Env for MockEnv {
-        fn get<T>(name: &str) -> Result<T, Error>
+        fn get<T>(name: &str) -> Result<Option<T>, Error>
         where
             T: FromStr,
             T::Err: std::error::Error + 'static,
         {
-            MOCK_ENV.with(|env| {
-                env.borrow()
-                    .get(name)
-                    .ok_or_else(|| Error::InvalidEnvValue(format!("env var not found: {name}")))
-                    .and_then(|v| {
-                        v.parse::<T>()
-                            .map_err(|e| Error::InvalidEnvValue(e.to_string()))
-                    })
+            MOCK_ENV.with(|env| match env.borrow().get(name) {
+                None => Ok(None),
+                Some(v) if v.is_empty() => Ok(None),
+                Some(v) => v
+                    .parse::<T>()
+                    .map(Some)
+                    .map_err(|e| Error::InvalidEnvValue(e.to_string())),
             })
         }
     }
@@ -583,15 +585,105 @@ mod tests {
     }
 
     #[test]
-    fn test_plugin_inner_run_unset() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_plugin_inner_run_unset() {
+        // Unset and empty are the same thing per the spec's reference implementation,
+        // and CNI_COMMAND is required for every operation: both are error code 4.
+        for setup in [(|| clear_mock_env()) as fn(), || {
+            clear_mock_env();
+            set_mock_env("CNI_COMMAND", "");
+        }] {
+            setup();
+            let plugin = Plugin::default().msg("Test Plugin v1.0.0");
+            let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+            assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
+        }
+    }
+
+    #[test]
+    fn test_plugin_inner_run_del_without_netns() -> Result<(), Box<dyn std::error::Error>> {
+        // The spec makes CNI_NETNS optional for DEL: teardown must complete even after
+        // the namespace is gone.
         clear_mock_env();
-        set_mock_env("CNI_COMMAND", "");
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "DEL");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_IFNAME", "eth0");
+        let config = NetConf {
+            cni_version: "1.0.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
 
-        let plugin = Plugin::default().msg("Test Plugin v1.0.0");
-        let mock_cni = MockCni;
+        let plugin = Plugin::default();
+        plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
+        Ok(())
+    }
 
-        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)?;
-        assert!(output.contains("Test Plugin v1.0.0"));
+    #[test]
+    fn test_plugin_inner_run_add_without_netns_fails() -> Result<(), Box<dyn std::error::Error>> {
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_IFNAME", "eth0");
+        let config = NetConf {
+            cni_version: "1.0.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
+        Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_add_without_optional_env() -> Result<(), Box<dyn std::error::Error>> {
+        // CNI_ARGS and CNI_PATH are optional for ADD.
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "test-container");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        let config = NetConf {
+            cni_version: "1.0.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_empty_container_id_fails() -> Result<(), Box<dyn std::error::Error>> {
+        // The spec: CNI_CONTAINERID "Must not be empty".
+        clear_mock_env();
+        clear_mock_input();
+        set_mock_env("CNI_COMMAND", "ADD");
+        set_mock_env("CNI_CONTAINERID", "");
+        set_mock_env("CNI_NETNS", "/var/run/netns/test");
+        set_mock_env("CNI_IFNAME", "eth0");
+        let config = NetConf {
+            cni_version: "1.0.0".to_string(),
+            name: "test-network".to_string(),
+            r#type: "test".to_string(),
+            ..Default::default()
+        };
+        set_mock_input(&serde_json::to_string(&config)?);
+
+        let plugin = Plugin::default();
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
         Ok(())
     }
 

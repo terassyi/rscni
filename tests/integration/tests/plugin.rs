@@ -87,13 +87,24 @@ fn run_plugin(
     ifname: &str,
     args: &str,
 ) -> Result<(bool, String, String), Box<dyn std::error::Error>> {
-    let mut child = Command::new(plugin_path)
-        .env(CNI_COMMAND, <&str>::from(cmd))
-        .env(CNI_CONTAINERID, container_id)
-        .env(CNI_NETNS, netns)
-        .env(CNI_IFNAME, ifname)
-        .env(CNI_ARGS, args)
-        .env(CNI_PATH, "/opt/cni/bin")
+    // Empty means "omit the variable": the plugin treats unset and empty identically
+    // (as the spec's reference implementation does), and omitting is what a spec-strict
+    // runtime actually sends for optional parameters.
+    let vars = [
+        (CNI_COMMAND, <&str>::from(cmd)),
+        (CNI_CONTAINERID, container_id),
+        (CNI_NETNS, netns),
+        (CNI_IFNAME, ifname),
+        (CNI_ARGS, args),
+        (CNI_PATH, "/opt/cni/bin"),
+    ];
+    let mut command = Command::new(plugin_path);
+    for (key, value) in vars {
+        if !value.is_empty() {
+            command.env(key, value);
+        }
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -227,6 +238,36 @@ fn test_del_command_helper(plugin_type: PluginType) -> Result<(), Box<dyn std::e
     let debug_content = fs::read_to_string(&debug_file)?;
     assert!(debug_content.contains("CNI_COMMAND: Del"));
     assert!(debug_content.contains(&format!("CNI_CONTAINERID: {container_id}")));
+    Ok(())
+}
+
+/// DEL must succeed without `CNI_NETNS`: the spec makes it optional there, because
+/// teardown has to complete even after the namespace is gone.
+fn test_del_without_netns_helper(
+    plugin_type: PluginType,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin_path = build_plugin(plugin_type)?;
+    let temp_dir = tempfile::tempdir()?;
+    let output_dir = temp_dir.path().to_path_buf();
+
+    let net_conf = format!(
+        r#"{{"cniVersion":"1.1.0","name":"test-network","type":"{}","cniOutput":"{}"}}"#,
+        plugin_type.name(),
+        output_dir.display()
+    );
+
+    let container_id = format!("{}-container-no-netns", plugin_type.name());
+    let (success, _stdout, stderr) = run_plugin(
+        &plugin_path,
+        Cmd::Del,
+        &net_conf,
+        &container_id,
+        "",
+        "eth0",
+        "",
+    )?;
+
+    assert!(success, "DEL without CNI_NETNS must succeed: {stderr}");
     Ok(())
 }
 
@@ -389,6 +430,11 @@ fn test_plugin_check_command() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn test_plugin_del_without_netns() -> Result<(), Box<dyn std::error::Error>> {
+    test_del_without_netns_helper(PluginType::Sync)
+}
+
+#[test]
 fn test_cni_version_compatibility() -> Result<(), Box<dyn std::error::Error>> {
     test_cni_version_compatibility_helper(PluginType::Sync)
 }
@@ -417,6 +463,11 @@ fn test_async_plugin_del_command() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_async_plugin_check_command() -> Result<(), Box<dyn std::error::Error>> {
     test_check_command_helper(PluginType::Async)
+}
+
+#[test]
+fn test_async_plugin_del_without_netns() -> Result<(), Box<dyn std::error::Error>> {
+    test_del_without_netns_helper(PluginType::Async)
 }
 
 #[test]
