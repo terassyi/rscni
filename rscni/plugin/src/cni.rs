@@ -309,8 +309,15 @@ impl Plugin {
     /// }
     /// ```
     pub fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
-        match self.inner_run::<T, OsEnv, StdIo>(cni) {
-            Ok(res) => StdIo::io_out()
+        self.run_with::<T, OsEnv, StdIo>(cni)
+    }
+
+    /// [`run`](Self::run) with its environment and I/O seams exposed, so tests can
+    /// assert what actually lands on stdout — the success result and the error
+    /// result structure both exist only on this side of `inner_run`.
+    fn run_with<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<(), Error> {
+        match self.inner_run::<C, E, I>(cni) {
+            Ok(res) => I::io_out()
                 .write_all(res.as_bytes())
                 .map_err(|e| Error::IOFailure(e.to_string())),
             Err(err) => {
@@ -320,7 +327,7 @@ impl Plugin {
                 // original error is what the caller must see either way.
                 let error_result = ErrorResult::new(self.info.cni_version(), &err);
                 if let Ok(json) = serde_json::to_string(&error_result) {
-                    let _ = StdIo::io_out().write_all(json.as_bytes());
+                    let _ = I::io_out().write_all(json.as_bytes());
                 }
                 Err(err)
             }
@@ -425,9 +432,9 @@ impl Plugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Dns, Interface, IpConfig, NetConf, Route};
+    use crate::types::{Dns, Interface, IpConfig, Route};
     use rstest::rstest;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
     use std::io::{Cursor, Read, Write};
     use std::str::FromStr;
@@ -460,9 +467,39 @@ mod tests {
     // Thread-local storage for mock I/O
     thread_local! {
         static MOCK_INPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static MOCK_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static MOCK_OUTPUT_BROKEN: Cell<bool> = const { Cell::new(false) };
     }
 
     struct MockIo;
+
+    /// Appends to the thread-local output buffer, so tests can assert what the
+    /// plugin put on its stdout via [`take_mock_output`] — or fails every write
+    /// after [`break_mock_output`], like a closed stdout would.
+    struct MockOut;
+
+    impl Write for MockOut {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if MOCK_OUTPUT_BROKEN.with(Cell::get) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "mock stdout is broken",
+                ));
+            }
+            MOCK_OUTPUT.with(|out| out.borrow_mut().extend_from_slice(buf));
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Makes every subsequent mock-stdout write fail; [`set_dispatch_env`] arms the
+    /// next test with a working one again.
+    fn break_mock_output() {
+        MOCK_OUTPUT_BROKEN.with(|broken| broken.set(true));
+    }
 
     impl Io for MockIo {
         fn io_in() -> impl Read {
@@ -473,12 +510,17 @@ mod tests {
         }
 
         fn io_out() -> impl Write {
-            Vec::new()
+            MockOut
         }
 
         fn io_err() -> impl Write {
             Vec::new()
         }
+    }
+
+    /// Drains and returns everything written to the mock stdout so far.
+    fn take_mock_output() -> String {
+        MOCK_OUTPUT.with(|out| String::from_utf8_lossy(&out.borrow_mut().split_off(0)).into_owned())
     }
 
     // Helper function to set mock environment variable
@@ -492,20 +534,6 @@ mod tests {
     fn set_mock_input(data: &str) {
         MOCK_INPUT.with(|input| {
             *input.borrow_mut() = data.as_bytes().to_vec();
-        });
-    }
-
-    // Helper function to clear mock environment
-    fn clear_mock_env() {
-        MOCK_ENV.with(|env| {
-            env.borrow_mut().clear();
-        });
-    }
-
-    // Helper function to clear mock input
-    fn clear_mock_input() {
-        MOCK_INPUT.with(|input| {
-            input.borrow_mut().clear();
         });
     }
 
@@ -563,64 +591,35 @@ mod tests {
         }
     }
 
+    // Accepted dispatches with no success output (the spec defines success output
+    // only for ADD and VERSION), including the exact operation floors — an off-by-one
+    // in the gate would reject 1.1.0, the only version a real runtime (libcni) ever
+    // issues GC and STATUS with — and CHECK above its floor.
     #[rstest]
-    #[case("ADD")]
-    #[case("DEL")]
-    #[case("CHECK")]
-    fn test_plugin_inner_run_commands(
+    #[case::del("DEL", "1.1.0")]
+    #[case::check_at_floor("CHECK", "0.4.0")]
+    #[case::check_above_floor("CHECK", "1.1.0")]
+    #[case::gc_at_floor("GC", "1.1.0")]
+    #[case::status_at_floor("STATUS", "1.1.0")]
+    fn test_plugin_inner_run_accepted(
         #[case] command: &str,
+        #[case] config_version: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        clear_mock_env();
-        clear_mock_input();
-
-        set_mock_env("CNI_COMMAND", command);
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
+        set_dispatch_env(command, "test-container", "/var/run/netns/test", "eth0");
         set_mock_env("CNI_PATH", "/opt/cni/bin");
-        set_mock_env("CNI_ARGS", "");
+        set_mock_config_version(config_version);
 
-        let config = NetConf {
-            cni_version: "1.0.0".to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
-
-        let plugin = Plugin::default();
-        let mock_cni = MockCni;
-
-        let json_output = plugin
-            .inner_run::<MockCni, MockEnv, MockIo>(&mock_cni)
-            .map_err(|e| format!("Command {command} should succeed: {e}"))?;
-        if command == "ADD" {
-            assert!(!json_output.is_empty());
-        } else {
-            // The spec defines success output only for ADD (and VERSION).
-            assert!(
-                json_output.is_empty(),
-                "{command} must produce no success output"
-            );
-        }
+        let output = Plugin::default()
+            .inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
+            .map_err(|e| format!("{command} must succeed: {e}"))?;
+        assert!(output.is_empty(), "{command} got: {output}");
         Ok(())
     }
 
     #[test]
     fn test_plugin_inner_run_add_echoes_cni_version() -> Result<(), Box<dyn std::error::Error>> {
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", "ADD");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        let config = NetConf {
-            cni_version: "1.0.0".to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
+        set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
+        set_mock_config_version("1.0.0");
 
         let plugin = Plugin::default();
         let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
@@ -636,8 +635,7 @@ mod tests {
 
     #[test]
     fn test_plugin_inner_run_version() -> Result<(), Box<dyn std::error::Error>> {
-        clear_mock_env();
-        set_mock_env("CNI_COMMAND", "VERSION");
+        set_dispatch_env("VERSION", "", "", "");
 
         let plugin = Plugin::default();
         let mock_cni = MockCni;
@@ -650,34 +648,51 @@ mod tests {
 
     #[test]
     fn test_plugin_inner_run_unset() {
-        // Unset and empty are the same thing per the spec's reference implementation,
-        // and CNI_COMMAND is required for every operation: both are error code 4.
-        for setup in [(|| clear_mock_env()) as fn(), || {
-            clear_mock_env();
-            set_mock_env("CNI_COMMAND", "");
-        }] {
-            setup();
-            let plugin = Plugin::default().msg("Test Plugin v1.0.0");
-            let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-            assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
-        }
+        // A missing CNI_COMMAND is error code 4 (an empty one is the same thing, but
+        // that equivalence is `Env`'s contract, collapsed before dispatch sees it).
+        set_dispatch_env("", "", "", "");
+        let plugin = Plugin::default().msg("Test Plugin v1.0.0");
+        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
     }
 
-    /// Dispatches `command` with the given container variables (empty = unset, which
-    /// the plugin treats identically) over a well-formed 1.1.0 config.
+    /// Arranges every mock seam from scratch — the single test entry point, so
+    /// isolation never leans on the harness giving each test a fresh thread. Empty
+    /// variables are omitted, exactly what a spec-strict runtime sends; stdin gets a
+    /// well-formed 1.1.0 config. Tests needing more layer overrides on top with
+    /// [`set_mock_env`]/[`set_mock_input`].
+    fn set_dispatch_env(command: &str, container_id: &str, netns: &str, ifname: &str) {
+        MOCK_ENV.with(|env| env.borrow_mut().clear());
+        MOCK_OUTPUT.with(|out| out.borrow_mut().clear());
+        MOCK_OUTPUT_BROKEN.with(|broken| broken.set(false));
+        let vars = [
+            ("CNI_COMMAND", command),
+            ("CNI_CONTAINERID", container_id),
+            ("CNI_NETNS", netns),
+            ("CNI_IFNAME", ifname),
+        ];
+        for (key, value) in vars {
+            if !value.is_empty() {
+                set_mock_env(key, value);
+            }
+        }
+        set_mock_config_version("1.1.0");
+    }
+
+    /// Puts a well-formed config declaring `version` on stdin.
+    fn set_mock_config_version(version: &str) {
+        set_mock_input(&format!(
+            r#"{{"cniVersion":"{version}","name":"test-network","type":"test"}}"#
+        ));
+    }
+
     fn dispatch_with_env(
         command: &str,
         container_id: &str,
         netns: &str,
         ifname: &str,
     ) -> Result<String, Error> {
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", command);
-        set_mock_env("CNI_CONTAINERID", container_id);
-        set_mock_env("CNI_NETNS", netns);
-        set_mock_env("CNI_IFNAME", ifname);
-        set_mock_input(r#"{"cniVersion":"1.1.0","name":"test-network","type":"test"}"#);
+        set_dispatch_env(command, container_id, netns, ifname);
         Plugin::default().inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
     }
 
@@ -686,7 +701,7 @@ mod tests {
     // wiring lives. Every violation is error code 4 naming the missing variable.
     #[rstest]
     #[case::add_without_netns("ADD", "c1", "", "eth0", "CNI_NETNS")]
-    #[case::add_empty_container_id("ADD", "", "/ns", "eth0", "CNI_CONTAINERID")]
+    #[case::add_without_container_id("ADD", "", "/ns", "eth0", "CNI_CONTAINERID")]
     #[case::del_without_container_id("DEL", "", "", "eth0", "CNI_CONTAINERID")]
     #[case::del_without_ifname("DEL", "c1", "", "", "CNI_IFNAME")]
     #[case::check_without_container_id("CHECK", "", "/ns", "eth0", "CNI_CONTAINERID")]
@@ -707,6 +722,38 @@ mod tests {
         }
     }
 
+    // `run` owns what lands on stdout — the result JSON on success, the spec's error
+    // result structure on failure — and a broken stdout must never replace the
+    // plugin's own error (the best-effort discard in the error arm), while a failed
+    // result write is itself an I/O failure (code 5). An expected code of 0 means
+    // success; an empty expectation means nothing must land on stdout.
+    #[rstest]
+    #[case::success_puts_the_result("c1", false, 0, r#""interfaces""#)]
+    #[case::failure_puts_the_error_result("", false, 4, r#""code":4"#)]
+    #[case::broken_stdout_keeps_the_plugin_error("", true, 4, "")]
+    #[case::broken_stdout_fails_a_success("c1", true, 5, "")]
+    fn test_plugin_run_writes_stdout(
+        #[case] container_id: &str,
+        #[case] broken_stdout: bool,
+        #[case] code: u32,
+        #[case] expected: &str,
+    ) {
+        set_dispatch_env("ADD", container_id, "/ns", "eth0");
+        if broken_stdout {
+            break_mock_output();
+        }
+
+        let result = Plugin::default().run_with::<MockCni, MockEnv, MockIo>(&MockCni);
+        let got = result.as_ref().map_or_else(u32::from, |()| 0);
+        assert_eq!(got, code, "got: {result:?}");
+        let stdout = take_mock_output();
+        if expected.is_empty() {
+            assert!(stdout.is_empty(), "stdout: {stdout}");
+        } else {
+            assert!(stdout.contains(expected), "stdout: {stdout}");
+        }
+    }
+
     #[rstest]
     #[case::add_required_only("ADD", "c1", "/ns", "eth0")]
     // CNI_NETNS is optional for DEL: teardown must complete after the netns is gone.
@@ -723,191 +770,95 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_plugin_inner_run_null_stdin_rejected() {
-        // A stdin of literal JSON `null` deserializes to no configuration without a
-        // decode error; it must be rejected, not treated as "nothing to validate".
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", "ADD");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        set_mock_env("CNI_PATH", "/opt/cni/bin");
-        set_mock_env("CNI_ARGS", "");
-        set_mock_input("null");
-
-        let plugin = Plugin::default();
-        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-        assert!(matches!(result, Err(Error::InvalidNetworkConfig(_))));
-    }
-
-    #[test]
-    fn test_plugin_inner_run_version_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-        clear_mock_env();
-        clear_mock_input();
-
-        set_mock_env("CNI_COMMAND", "ADD");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        set_mock_env("CNI_PATH", "/opt/cni/bin");
-        set_mock_env("CNI_ARGS", "");
-
-        // Plugin supports 1.0.0, but config specifies 0.4.0
-        let config = NetConf {
-            cni_version: "0.4.0".to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
-
-        let plugin = Plugin::new("1.0.0", vec!["1.0.0".to_string()]);
-        let mock_cni = MockCni;
-
-        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&mock_cni);
-        assert!(result.is_err());
-        if let Err(Error::IncompatibleVersion(_)) = result {
-            // Expected error
-        } else {
-            panic!("Expected IncompatibleVersion error");
-        }
-        Ok(())
-    }
-
+    // Broken stdin, by error class: a literal `null` deserializes to no configuration
+    // without a decode error and must be rejected as such (code 7, not "nothing to
+    // validate"); a version that cannot parse is a decode failure (code 6) — parsed
+    // once at the config boundary every operation shares.
     #[rstest]
-    #[case("CHECK", "0.3.1", "config version does not allow CHECK")]
-    #[case("GC", "1.0.0", "config version does not allow GC")]
-    #[case("STATUS", "1.0.0", "config version does not allow STATUS")]
-    fn test_plugin_inner_run_operation_floor(
+    #[case::null_config("null", 7)]
+    #[case::malformed_version(
+        r#"{"cniVersion":"not-a-version","name":"test-network","type":"test"}"#,
+        6
+    )]
+    fn test_plugin_inner_run_broken_stdin_rejected(#[case] stdin: &str, #[case] code: u32) {
+        set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
+        set_mock_input(stdin);
+
+        let Err(err) = Plugin::default().inner_run::<MockCni, MockEnv, MockIo>(&MockCni) else {
+            panic!("ADD must reject this stdin");
+        };
+        assert_eq!(u32::from(&err), code, "got: {err:?}");
+    }
+
+    // Version negotiation rejections, all error code 1. The floor cases use versions
+    // from the default plugin's supported list, so what must reject them is the
+    // operation floor (CHECK exists only from 0.4.0, GC and STATUS from 1.1.0), not
+    // the supported-version membership check; the membership case is the reverse.
+    #[rstest]
+    #[case::check_below_floor(
+        Plugin::default(),
+        "CHECK",
+        "0.3.1",
+        "config version does not allow CHECK"
+    )]
+    #[case::gc_below_floor(Plugin::default(), "GC", "1.0.0", "config version does not allow GC")]
+    #[case::status_below_floor(
+        Plugin::default(),
+        "STATUS",
+        "1.0.0",
+        "config version does not allow STATUS"
+    )]
+    #[case::unsupported_version(
+        Plugin::new("1.0.0", vec!["1.0.0".to_string()]),
+        "ADD",
+        "0.4.0",
+        r#"config is "0.4.0""#
+    )]
+    fn test_plugin_inner_run_version_rejected(
+        #[case] plugin: Plugin,
         #[case] command: &str,
         #[case] config_version: &str,
         #[case] expected_details: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // The config versions here are all in the default plugin's supported list, so
-        // what must reject them is the operation floor (CHECK exists only from 0.4.0,
-        // GC and STATUS from 1.1.0), not the supported-version membership check.
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", command);
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
+    ) {
+        set_dispatch_env(command, "test-container", "/var/run/netns/test", "eth0");
         set_mock_env("CNI_PATH", "/opt/cni/bin");
-        let config = NetConf {
-            cni_version: config_version.to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
+        set_mock_config_version(config_version);
 
-        let plugin = Plugin::default();
-        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-        match result {
-            Err(Error::IncompatibleVersion(details)) => assert_eq!(details, expected_details),
+        match plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni) {
+            Err(Error::IncompatibleVersion(details)) => {
+                assert!(details.contains(expected_details), "got: {details}");
+            }
             other => panic!("expected IncompatibleVersion, got {other:?}"),
         }
-        Ok(())
     }
 
+    // `cniVersion` was only added to the config format in spec 0.2.0: its absence
+    // means 0.1.0 — rejected with code 1 (not a decode failure) unless the plugin
+    // declares 0.1.0 support, in which case the ADD result echoes the implied 0.1.0.
     #[rstest]
-    #[case("CHECK", "0.4.0")]
-    #[case("GC", "1.1.0")]
-    #[case("STATUS", "1.1.0")]
-    fn test_plugin_inner_run_operation_floor_boundary_accepted(
-        #[case] command: &str,
-        #[case] config_version: &str,
+    #[case::rejected_without_010_support(Plugin::default(), None)]
+    #[case::served_with_010_support(
+        Plugin::new("1.1.0", vec!["0.1.0".to_string(), "1.1.0".to_string()]),
+        Some("0.1.0")
+    )]
+    fn test_plugin_inner_run_missing_cni_version(
+        #[case] plugin: Plugin,
+        #[case] echoed: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // The exact floor version must dispatch: an off-by-one in the gate would
-        // reject 1.1.0 — the only version a real runtime (libcni) ever issues GC and
-        // STATUS with — and no other test dispatches GC successfully.
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", command);
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        set_mock_env("CNI_PATH", "/opt/cni/bin");
-        let config = NetConf {
-            cni_version: config_version.to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
-
-        let plugin = Plugin::default();
-        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
-        // The spec defines no success output for any of these operations.
-        assert!(output.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn test_plugin_inner_run_missing_cni_version_means_010() {
-        // `cniVersion` was only added to the config format in spec 0.2.0: its absence
-        // means 0.1.0, which the default plugin does not support — error code 1, not a
-        // decode failure.
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", "ADD");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
+        set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
         set_mock_input(r#"{"name":"test-network","type":"test"}"#);
 
-        let plugin = Plugin::default();
         let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-        assert!(matches!(result, Err(Error::IncompatibleVersion(_))));
-    }
-
-    #[test]
-    fn test_plugin_inner_run_missing_cni_version_add_echoes_010()
-    -> Result<(), Box<dyn std::error::Error>> {
-        // A plugin that does support 0.1.0 serves the version-less config, and the ADD
-        // result echoes the implied 0.1.0.
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", "ADD");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        set_mock_input(r#"{"name":"test-network","type":"test"}"#);
-
-        let plugin = Plugin::new("1.1.0", vec!["0.1.0".to_string(), "1.1.0".to_string()]);
-        let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
-        let parsed: serde_json::Value = serde_json::from_str(&output)?;
-        assert_eq!(parsed["cniVersion"], "0.1.0");
-        Ok(())
-    }
-
-    #[rstest]
-    #[case("ADD")]
-    #[case("CHECK")]
-    fn test_plugin_inner_run_malformed_cni_version(
-        #[case] command: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // The declared version is parsed once at the config boundary, so a version
-        // that cannot parse is a decode failure (error code 6) on every operation.
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", command);
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        let config = NetConf {
-            cni_version: "not-a-version".to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
-
-        let plugin = Plugin::default();
-        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-        assert!(matches!(result, Err(Error::FailedToDecode(_))));
+        match echoed {
+            Some(version) => {
+                let parsed: serde_json::Value = serde_json::from_str(&result?)?;
+                assert_eq!(parsed["cniVersion"], version);
+            }
+            None => assert!(
+                matches!(result, Err(Error::IncompatibleVersion(_))),
+                "got: {result:?}"
+            ),
+        }
         Ok(())
     }
 }
