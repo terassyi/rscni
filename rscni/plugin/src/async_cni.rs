@@ -629,9 +629,12 @@ mod tests {
             .inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
             .await?;
 
-        // The spec: the ADD result must carry the cniVersion supplied on input.
+        // The spec: the ADD result must carry the cniVersion supplied on input, and
+        // the result's own fields sit beside it at the top level — the wire wrapper
+        // is flattened, not nested.
         let parsed: serde_json::Value = serde_json::from_str(&output)?;
         assert_eq!(parsed["cniVersion"], "1.0.0");
+        assert_eq!(parsed["interfaces"][0]["name"], "eth0");
         Ok(())
     }
 
@@ -668,60 +671,70 @@ mod tests {
         }
     }
 
+    /// Dispatches `command` with the given container variables (empty = unset, which
+    /// the plugin treats identically) over a well-formed 1.1.0 config.
     #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn test_plugin_inner_run_del_without_netns() -> Result<(), Box<dyn std::error::Error>> {
-        // The spec makes CNI_NETNS optional for DEL: teardown must complete even after
-        // the namespace is gone.
+    async fn dispatch_with_env(
+        command: &str,
+        container_id: &str,
+        netns: &str,
+        ifname: &str,
+    ) -> Result<String, Error> {
         clear_mock_env();
         clear_mock_input();
-        set_mock_env("CNI_COMMAND", "DEL");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_IFNAME", "eth0");
-        let config = NetConf {
-            cni_version: "1.0.0".to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
-
-        let plugin = Plugin::default();
-        plugin
+        set_mock_env("CNI_COMMAND", command);
+        set_mock_env("CNI_CONTAINERID", container_id);
+        set_mock_env("CNI_NETNS", netns);
+        set_mock_env("CNI_IFNAME", ifname);
+        set_mock_input(r#"{"cniVersion":"1.1.0","name":"test-network","type":"test"}"#);
+        Plugin::default()
             .inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
-            .await?;
-        Ok(())
+            .await
+    }
+
+    // `ArgsBuilder::validate`'s doc carries the spec's full required/optional
+    // environment matrix; these tables drive it through dispatch, where the builder
+    // wiring lives. Every violation is error code 4 naming the missing variable.
+    #[cfg(feature = "async")]
+    #[rstest]
+    #[case::add_without_netns("ADD", "c1", "", "eth0", "CNI_NETNS")]
+    #[case::add_empty_container_id("ADD", "", "/ns", "eth0", "CNI_CONTAINERID")]
+    #[case::del_without_container_id("DEL", "", "", "eth0", "CNI_CONTAINERID")]
+    #[case::del_without_ifname("DEL", "c1", "", "", "CNI_IFNAME")]
+    #[case::check_without_container_id("CHECK", "", "/ns", "eth0", "CNI_CONTAINERID")]
+    #[case::gc_without_path("GC", "", "", "", "CNI_PATH")]
+    #[tokio::test]
+    async fn test_plugin_inner_run_env_matrix_rejected(
+        #[case] command: &str,
+        #[case] container_id: &str,
+        #[case] netns: &str,
+        #[case] ifname: &str,
+        #[case] missing: &str,
+    ) {
+        match dispatch_with_env(command, container_id, netns, ifname).await {
+            Err(Error::InvalidEnvValue(details)) => assert!(
+                details.contains(missing),
+                "{command}: details must name {missing}, got: {details}"
+            ),
+            other => panic!("{command} must fail naming {missing}, got: {other:?}"),
+        }
     }
 
     #[cfg(feature = "async")]
+    #[rstest]
+    #[case::add_required_only("ADD", "c1", "/ns", "eth0")]
+    // CNI_NETNS is optional for DEL: teardown must complete after the netns is gone.
+    #[case::del_without_netns("DEL", "c1", "", "eth0")]
+    // STATUS requires nothing container-specific.
+    #[case::status_bare("STATUS", "", "", "")]
     #[tokio::test]
-    async fn test_plugin_inner_run_add_without_optional_env()
-    -> Result<(), Box<dyn std::error::Error>> {
-        // CNI_ARGS and CNI_PATH are optional for ADD; CNI_NETNS is not.
-        clear_mock_env();
-        clear_mock_input();
-        set_mock_env("CNI_COMMAND", "ADD");
-        set_mock_env("CNI_CONTAINERID", "test-container");
-        set_mock_env("CNI_NETNS", "/var/run/netns/test");
-        set_mock_env("CNI_IFNAME", "eth0");
-        let config = NetConf {
-            cni_version: "1.0.0".to_string(),
-            name: "test-network".to_string(),
-            r#type: "test".to_string(),
-            ..Default::default()
-        };
-        set_mock_input(&serde_json::to_string(&config)?);
-
-        let plugin = Plugin::default();
-        plugin
-            .inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
-            .await?;
-
-        clear_mock_input();
-        set_mock_env("CNI_NETNS", "");
-        set_mock_input(&serde_json::to_string(&config)?);
-        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni).await;
-        assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
+    async fn test_plugin_inner_run_env_matrix_accepted(
+        #[case] command: &str,
+        #[case] container_id: &str,
+        #[case] netns: &str,
+        #[case] ifname: &str,
+    ) -> Result<(), Error> {
+        dispatch_with_env(command, container_id, netns, ifname).await?;
         Ok(())
     }
 
@@ -832,7 +845,7 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // The exact floor version must dispatch: an off-by-one in the gate would
         // reject 1.1.0 — the only version a real runtime (libcni) ever issues GC and
-        // STATUS with — and no other test dispatches these operations successfully.
+        // STATUS with — and no other test dispatches GC successfully.
         clear_mock_env();
         clear_mock_input();
         set_mock_env("CNI_COMMAND", command);
