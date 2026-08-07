@@ -309,8 +309,15 @@ impl Plugin {
     /// }
     /// ```
     pub fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
-        match self.inner_run::<T, OsEnv, StdIo>(cni) {
-            Ok(res) => StdIo::io_out()
+        self.run_with::<T, OsEnv, StdIo>(cni)
+    }
+
+    /// [`run`](Self::run) with its environment and I/O seams exposed, so tests can
+    /// assert what actually lands on stdout — the success result and the error
+    /// result structure both exist only on this side of `inner_run`.
+    fn run_with<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<(), Error> {
+        match self.inner_run::<C, E, I>(cni) {
+            Ok(res) => I::io_out()
                 .write_all(res.as_bytes())
                 .map_err(|e| Error::IOFailure(e.to_string())),
             Err(err) => {
@@ -320,7 +327,7 @@ impl Plugin {
                 // original error is what the caller must see either way.
                 let error_result = ErrorResult::new(self.info.cni_version(), &err);
                 if let Ok(json) = serde_json::to_string(&error_result) {
-                    let _ = StdIo::io_out().write_all(json.as_bytes());
+                    let _ = I::io_out().write_all(json.as_bytes());
                 }
                 Err(err)
             }
@@ -427,7 +434,7 @@ mod tests {
     use super::*;
     use crate::types::{Dns, Interface, IpConfig, NetConf, Route};
     use rstest::rstest;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
     use std::io::{Cursor, Read, Write};
     use std::str::FromStr;
@@ -460,9 +467,39 @@ mod tests {
     // Thread-local storage for mock I/O
     thread_local! {
         static MOCK_INPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static MOCK_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static MOCK_OUTPUT_BROKEN: Cell<bool> = const { Cell::new(false) };
     }
 
     struct MockIo;
+
+    /// Appends to the thread-local output buffer, so tests can assert what the
+    /// plugin put on its stdout via [`take_mock_output`] — or fails every write
+    /// after [`break_mock_output`], like a closed stdout would.
+    struct MockOut;
+
+    impl Write for MockOut {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if MOCK_OUTPUT_BROKEN.with(Cell::get) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "mock stdout is broken",
+                ));
+            }
+            MOCK_OUTPUT.with(|out| out.borrow_mut().extend_from_slice(buf));
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Makes every subsequent mock-stdout write fail. Test threads are fresh per
+    /// test, so there is nothing to reset.
+    fn break_mock_output() {
+        MOCK_OUTPUT_BROKEN.with(|broken| broken.set(true));
+    }
 
     impl Io for MockIo {
         fn io_in() -> impl Read {
@@ -473,12 +510,17 @@ mod tests {
         }
 
         fn io_out() -> impl Write {
-            Vec::new()
+            MockOut
         }
 
         fn io_err() -> impl Write {
             Vec::new()
         }
+    }
+
+    /// Drains and returns everything written to the mock stdout so far.
+    fn take_mock_output() -> String {
+        MOCK_OUTPUT.with(|out| String::from_utf8_lossy(&out.borrow_mut().split_off(0)).into_owned())
     }
 
     // Helper function to set mock environment variable
@@ -663,14 +705,9 @@ mod tests {
         }
     }
 
-    /// Dispatches `command` with the given container variables (empty = unset, which
-    /// the plugin treats identically) over a well-formed 1.1.0 config.
-    fn dispatch_with_env(
-        command: &str,
-        container_id: &str,
-        netns: &str,
-        ifname: &str,
-    ) -> Result<String, Error> {
+    /// Arranges the mock environment (empty = unset, which the plugin treats
+    /// identically) and a well-formed 1.1.0 config on stdin.
+    fn set_dispatch_env(command: &str, container_id: &str, netns: &str, ifname: &str) {
         clear_mock_env();
         clear_mock_input();
         set_mock_env("CNI_COMMAND", command);
@@ -678,6 +715,15 @@ mod tests {
         set_mock_env("CNI_NETNS", netns);
         set_mock_env("CNI_IFNAME", ifname);
         set_mock_input(r#"{"cniVersion":"1.1.0","name":"test-network","type":"test"}"#);
+    }
+
+    fn dispatch_with_env(
+        command: &str,
+        container_id: &str,
+        netns: &str,
+        ifname: &str,
+    ) -> Result<String, Error> {
+        set_dispatch_env(command, container_id, netns, ifname);
         Plugin::default().inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
     }
 
@@ -704,6 +750,38 @@ mod tests {
                 "{command}: details must name {missing}, got: {details}"
             ),
             other => panic!("{command} must fail naming {missing}, got: {other:?}"),
+        }
+    }
+
+    // `run` owns what lands on stdout — the result JSON on success, the spec's error
+    // result structure on failure — and a broken stdout must never replace the
+    // plugin's own error (the best-effort discard in the error arm), while a failed
+    // result write is itself an I/O failure (code 5). An expected code of 0 means
+    // success; an empty expectation means nothing must land on stdout.
+    #[rstest]
+    #[case::success_puts_the_result("c1", false, 0, r#""interfaces""#)]
+    #[case::failure_puts_the_error_result("", false, 4, r#""code":4"#)]
+    #[case::broken_stdout_keeps_the_plugin_error("", true, 4, "")]
+    #[case::broken_stdout_fails_a_success("c1", true, 5, "")]
+    fn test_plugin_run_writes_stdout(
+        #[case] container_id: &str,
+        #[case] broken_stdout: bool,
+        #[case] code: u32,
+        #[case] expected: &str,
+    ) {
+        set_dispatch_env("ADD", container_id, "/ns", "eth0");
+        if broken_stdout {
+            break_mock_output();
+        }
+
+        let result = Plugin::default().run_with::<MockCni, MockEnv, MockIo>(&MockCni);
+        let got = result.as_ref().map_or_else(u32::from, |()| 0);
+        assert_eq!(got, code, "got: {result:?}");
+        let stdout = take_mock_output();
+        if expected.is_empty() {
+            assert!(stdout.is_empty(), "stdout: {stdout}");
+        } else {
+            assert!(stdout.contains(expected), "stdout: {stdout}");
         }
     }
 
