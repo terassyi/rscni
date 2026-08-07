@@ -169,10 +169,12 @@ impl SpecVersion {
 
 impl Default for SpecVersion {
     /// Returns [`SpecVersion::CURRENT`] — the version for anything newly produced.
-    /// Note that an *absent* version in an existing configuration does not mean this;
-    /// it means 0.1.0, which [`NetConf::version`] resolves.
+    /// Note that an *undeclared* version in an existing configuration does not mean
+    /// this; it means 0.1.0, which [`NetConf::version`] and [`NetConfList::version`]
+    /// resolve.
     ///
     /// [`NetConf::version`]: crate::types::NetConf::version
+    /// [`NetConfList::version`]: crate::types::NetConfList::version
     fn default() -> Self {
         Self::CURRENT
     }

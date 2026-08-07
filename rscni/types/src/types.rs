@@ -85,15 +85,47 @@ impl From<Cmd> for &str {
     }
 }
 
+/// Deserializes a JSON `null` as the type's default, making `null` equivalent to
+/// omitting the key. Go plugins parse their stdin with `json.Unmarshal`, which no-ops
+/// a `null` into the field's zero value, so on the plugin side of the protocol every
+/// `"key": null` reads like an absent key; serde's `#[serde(default)]` covers only
+/// absent keys and rejects a present `null` (serde-rs/serde#1098 — this is that
+/// issue's canonical workaround).
+///
+/// The attribute belongs on the defaulted non-`Option` fields of the documents a
+/// PLUGIN parses — [`NetConf`] and everything nested in it — where `Option` fields
+/// accept `null` natively and required fields treat `null` as the error omission
+/// already is. It does NOT belong on [`NetConfList`]: that document's reference
+/// parser is libcni's conflist code, which type-asserts its keys and rejects `null`.
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// Resolves a declared `cniVersion` value: empty — the in-memory form of an absent
+/// key, a JSON `null`, and the empty string alike — means 0.1.0, the only version to
+/// predate the key (added in 0.2.0).
+fn declared_version(declared: &str) -> Result<SpecVersion, Error> {
+    if declared.is_empty() {
+        "0.1.0"
+    } else {
+        declared
+    }
+    .parse()
+}
+
 /// `NetConf` will be given as a JSON serialized data from stdin when plugin is called.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#section-1-network-configuration-format>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct NetConf {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
-    /// The key was only added to the format in spec 0.2.0, so it may be absent; an
-    /// absent or empty value means 0.1.0.
-    #[serde(default)]
+    /// May be undeclared — the key predates spec 0.2.0; this type's `version()`
+    /// resolves what that means.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub cni_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cni_versions: Option<Vec<String>>,
@@ -141,9 +173,7 @@ pub struct NetConf {
 
 impl NetConf {
     /// Returns the CNI specification version this configuration declares, parsed;
-    /// the implied 0.1.0 when the field is empty or absent (`cniVersion` was only
-    /// added to the format in 0.2.0, and the reference implementation decodes its
-    /// absence as 0.1.0 rather than rejecting the config).
+    /// the implied 0.1.0 when the field is undeclared (absent, `null`, or empty).
     ///
     /// Parsing here rather than passing the raw string around means a malformed
     /// version fails once, at this boundary, for every operation alike; the trade-off
@@ -154,12 +184,7 @@ impl NetConf {
     ///
     /// Returns [`Error::FailedToDecode`] if the declared version is malformed.
     pub fn version(&self) -> Result<SpecVersion, Error> {
-        let declared = if self.cni_version.is_empty() {
-            "0.1.0"
-        } else {
-            &self.cni_version
-        };
-        declared.parse()
+        declared_version(&self.cni_version)
     }
 }
 
@@ -168,8 +193,11 @@ impl NetConf {
 #[serde(rename_all = "camelCase")]
 pub struct NetConfList {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
-    /// The key was only added to the format in spec 0.2.0, so it may be absent; an
-    /// absent or empty value means 0.1.0.
+    /// May be absent or empty — the key predates spec 0.2.0; this type's `version()`
+    /// resolves what that means. A `null` is rejected: libcni's conflist parser
+    /// type-asserts this key, so `null` is a decode error there, and the fields of
+    /// this runtime-side document deliberately follow that parser rather than the
+    /// `null`-tolerant `json.Unmarshal` semantics the plugin-side documents get.
     #[serde(default)]
     pub cni_version: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -199,6 +227,18 @@ pub struct NetConfList {
     pub plugins: Vec<NetConf>,
 }
 
+impl NetConfList {
+    /// Returns the CNI specification version this configuration list declares, parsed;
+    /// undeclared resolves like [`NetConf::version`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::FailedToDecode`] if the declared version is malformed.
+    pub fn version(&self) -> Result<SpecVersion, Error> {
+        declared_version(&self.cni_version)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GcAttachment {
     pub container_id: String,
@@ -208,7 +248,11 @@ pub struct GcAttachment {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeConf {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub port_mappings: Vec<PortMapping>,
     #[serde(flatten)]
     pub custom: HashMap<String, Value>,
@@ -229,7 +273,11 @@ pub struct Ipam {
 #[serde(rename_all = "camelCase")]
 pub struct Dns {
     /// List of a priority-ordered list of DNS nameservers that this network is aware of. Each entry in the list is a string containing either an IPv4 or an IPv6 address.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub nameservers: Vec<String>,
     /// The local domain used for short hostname lookups.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -274,11 +322,23 @@ pub struct Route {
 pub struct CNIResult {
     /// In case of delegated plugins(IPAM), it may omit interfaces or ips sections.
     /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#delegated-plugins-ipam>.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub interfaces: Vec<Interface>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub ips: Vec<IpConfig>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub routes: Vec<Route>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dns: Option<Dns>,
@@ -444,8 +504,8 @@ mod tests {
     use crate::error::Error;
 
     use super::{
-        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, PortMapping,
-        Protocol, Route, RuntimeConf,
+        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, NetConfList,
+        PortMapping, Protocol, Route, RuntimeConf,
     };
 
     #[rstest]
@@ -503,14 +563,46 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_net_conf_without_cni_version() -> Result<(), Box<dyn std::error::Error>> {
-        // `cniVersion` was only added to the config format in spec 0.2.0, so a config
-        // may omit it; that must not be a decode failure, and the effective version is
-        // the implied 0.1.0.
-        let conf: NetConf = serde_json::from_str(r#"{"name":"test-network","type":"bridge"}"#)?;
-        assert_eq!(conf.cni_version, "");
+    // The stdin document (NetConf and everything nested in it) is parsed by Go
+    // plugins with json.Unmarshal, which reads `null` like an omitted key: absent,
+    // `null`, and empty all resolve to the implied 0.1.0 (the key predates spec
+    // 0.2.0), and `null` on any nested defaulted field decodes as its default.
+    #[rstest]
+    #[case::absent(r#"{"name":"n","type":"b"}"#)]
+    #[case::null(r#"{"cniVersion":null,"name":"n","type":"b"}"#)]
+    #[case::empty(r#"{"cniVersion":"","name":"n","type":"b"}"#)]
+    #[case::nested_nulls(
+        r#"{"cniVersion":null,"name":"n","type":"b",
+            "runtimeConfig":{"portMappings":null},
+            "dns":{"nameservers":null},
+            "prevResult":{"interfaces":null,"ips":null,"routes":null,"dns":null}}"#
+    )]
+    fn test_net_conf_undeclared_version_means_010(
+        #[case] json: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let conf: NetConf = serde_json::from_str(json)?;
         assert_eq!(conf.version()?.to_string(), "0.1.0");
+        Ok(())
+    }
+
+    // The conflist is the runtime-side document; its reference parser (libcni's
+    // conflist code) type-asserts its keys, so absent and empty resolve to 0.1.0 but
+    // an explicit `null` is a decode error there — and here.
+    #[rstest]
+    #[case::absent(r#"{"name":"n"}"#, true)]
+    #[case::empty(r#"{"cniVersion":"","name":"n"}"#, true)]
+    #[case::null(r#"{"cniVersion":null,"name":"n"}"#, false)]
+    fn test_net_conf_list_undeclared_version(
+        #[case] json: &str,
+        #[case] decodes: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match serde_json::from_str::<NetConfList>(json) {
+            Ok(list) => {
+                assert!(decodes, "null must be rejected like libcni does");
+                assert_eq!(list.version()?.to_string(), "0.1.0");
+            }
+            Err(_) => assert!(!decodes, "absent/empty must decode"),
+        }
         Ok(())
     }
 
