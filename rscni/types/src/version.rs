@@ -86,7 +86,8 @@ impl PluginInfo {
 
     /// Runs the version negotiation every dispatchable operation performs: `conf`'s
     /// declared version must permit `cmd` and be one this plugin speaks. Returns the
-    /// canonical version string the ADD result echoes.
+    /// negotiated version, which decides the shape of the ADD success output — its
+    /// canonical string is what the result declares as `cniVersion`.
     ///
     /// [`SpecVersion::allows`] is consulted unconditionally — it is total over
     /// [`Cmd`], so which operations have a version floor stays its knowledge alone,
@@ -98,11 +99,10 @@ impl PluginInfo {
     /// Returns [`Error::FailedToDecode`] for a malformed declared version, and
     /// [`Error::IncompatibleVersion`] when that version predates `cmd` or is not one
     /// this plugin supports.
-    pub fn negotiate(&self, conf: &NetConf, cmd: Cmd) -> Result<String, Error> {
+    pub fn negotiate(&self, conf: &NetConf, cmd: Cmd) -> Result<SpecVersion, Error> {
         let version = conf.version()?;
         version.allows(cmd)?;
-        let version = version.to_string();
-        self.validate(&version)?;
+        self.validate(&version.to_string())?;
         Ok(version)
     }
 }
@@ -165,6 +165,13 @@ impl SpecVersion {
         }
         Ok(())
     }
+
+    /// Whether an ADD result for this version uses the legacy wire layout that
+    /// specification versions 0.3.0 through 0.4.0 share, instead of the current one.
+    #[must_use]
+    pub fn is_legacy(self) -> bool {
+        Self(0, 3, 0) <= self && self < Self(1, 0, 0)
+    }
 }
 
 impl Default for SpecVersion {
@@ -177,6 +184,24 @@ impl Default for SpecVersion {
     /// [`NetConfList::version`]: crate::types::NetConfList::version
     fn default() -> Self {
         Self::CURRENT
+    }
+}
+
+/// Serializes as the canonical dotted string [`Display`](std::fmt::Display) renders,
+/// which is how every wire structure carries a version.
+impl Serialize for SpecVersion {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+/// Deserializes from the dotted string form, rejecting malformed versions like
+/// [`FromStr`] does.
+impl<'de> Deserialize<'de> for SpecVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -306,6 +331,18 @@ mod tests {
             PluginInfo::default().cni_version,
             SpecVersion::CURRENT.to_string()
         );
+    }
+
+    #[rstest]
+    // Versions before 0.3.0 had yet another layout this crate does not produce;
+    // they deliberately fall on the current side.
+    #[case("0.2.0", false)]
+    #[case("0.3.0", true)]
+    #[case("0.4.0", true)]
+    #[case("1.0.0", false)]
+    fn spec_version_is_legacy(#[case] version: &str, #[case] legacy: bool) -> Result<(), Error> {
+        assert_eq!(SpecVersion::from_str(version)?.is_legacy(), legacy);
+        Ok(())
     }
 
     #[rstest]

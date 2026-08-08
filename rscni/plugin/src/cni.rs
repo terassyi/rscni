@@ -2,13 +2,13 @@ use std::io::Write;
 
 use rscni_types::{
     error::Error,
-    types::{CNIResult, CNIResultWithCNIVersion, Cmd, ErrorResult},
+    types::{CNIResult, Cmd, ErrorResult},
     version::PluginInfo,
 };
 
 use crate::{
     args::{Args, ArgsBuilder, cmd_from_env},
-    util::{Env, Io, OsEnv, StdIo, about_text, version_json},
+    util::{Env, Io, OsEnv, StdIo, about_text, result_json, version_json},
 };
 
 /// The core trait for implementing a CNI plugin.
@@ -215,11 +215,12 @@ impl Plugin {
     /// * `ver` - The primary CNI version this plugin uses (e.g., "1.1.0")
     /// * `versions` - List of all CNI versions this plugin supports
     ///
-    /// Note that the ADD success output is always serialized in the specification's
-    /// current result layout (`interfaces`/`ips`/`routes`/`dns`); the framework does
-    /// not convert results to the pre-0.3.0 `ip4`/`ip6` layout those spec versions
-    /// define. Listing a version before 0.3.0 in `versions` therefore produces ADD
-    /// results consumers of that version cannot decode.
+    /// The ADD success output is serialized in the result layout the negotiated
+    /// config version requires: the legacy layout for versions 0.3.0 through 0.4.0,
+    /// the current one for 1.0.0 and later. Versions 0.1.0 and 0.2.0 define yet
+    /// another, `ip4`/`ip6`-shaped layout the framework does not produce, so listing
+    /// them in `versions` produces ADD results consumers of those versions cannot
+    /// decode.
     ///
     /// # Example
     ///
@@ -356,11 +357,11 @@ impl Plugin {
                     .validate(cmd)?
                     .build()?;
                 // The spec requires the ADD result to carry a `cniVersion` key echoing
-                // the version supplied on input.
+                // the version supplied on input — and for versions before 1.0.0, to
+                // use their legacy result layout.
                 let cni_version = self.info.negotiate((&args).try_into()?, cmd)?;
                 let res = cni.add(args)?;
-                let res = CNIResultWithCNIVersion::new(cni_version, res);
-                serde_json::to_string(&res).map_err(|e| Error::FailedToDecode(e.to_string()))
+                result_json(cni_version, res)
             }
             Cmd::Del => {
                 let args = ArgsBuilder::<E, I>::new()
@@ -616,10 +617,15 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_plugin_inner_run_add_echoes_cni_version() -> Result<(), Box<dyn std::error::Error>> {
+    #[rstest]
+    #[case("1.0.0", None)]
+    #[case("0.4.0", Some("4"))]
+    fn test_plugin_inner_run_add_echoes_cni_version(
+        #[case] version: &str,
+        #[case] legacy_ip_family: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
-        set_mock_config_version("1.0.0");
+        set_mock_config_version(version);
 
         let plugin = Plugin::default();
         let output = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
@@ -628,8 +634,14 @@ mod tests {
         // the result's own fields sit beside it at the top level — the wire wrapper
         // is flattened, not nested.
         let parsed: serde_json::Value = serde_json::from_str(&output)?;
-        assert_eq!(parsed["cniVersion"], "1.0.0");
+        assert_eq!(parsed["cniVersion"], version);
         assert_eq!(parsed["interfaces"][0]["name"], "eth0");
+        // Pre-1.0 versions get the legacy layout, recognizable by the mandatory
+        // ips[].version; the exact conversion is rscni-types' legacy tests' business.
+        assert_eq!(
+            parsed["ips"][0].get("version").and_then(|v| v.as_str()),
+            legacy_ip_family
+        );
         Ok(())
     }
 
