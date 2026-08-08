@@ -367,9 +367,11 @@ fn test_cni_version_compatibility_helper(
     let temp_dir = tempfile::tempdir()?;
     let output_dir = temp_dir.path().to_path_buf();
 
-    for version in &["0.4.0", "1.0.0", "1.1.0"] {
+    for (version, legacy) in &[("0.4.0", true), ("1.0.0", false), ("1.1.0", false)] {
+        // The debug plugin returns prevResult as its ADD result, so the output shows
+        // which wire layout the framework chose for the negotiated version.
         let net_conf = format!(
-            r#"{{"cniVersion":"{}","name":"test","type":"{}","cniOutput":"{}"}}"#,
+            r#"{{"cniVersion":"{}","name":"test","type":"{}","cniOutput":"{}","prevResult":{{"ips":[{{"address":"10.1.0.5/16"}}]}}}}"#,
             version,
             plugin_type.name(),
             output_dir.display()
@@ -389,9 +391,13 @@ fn test_cni_version_compatibility_helper(
 
         let result: Value = serde_json::from_str(&stdout)
             .unwrap_or_else(|_| panic!("Failed to parse result for version {version}"));
-        assert!(
-            result.is_object(),
-            "Result should be a JSON object for version {version}"
+        assert_eq!(result["cniVersion"], *version);
+        // The legacy (0.3.0 through 0.4.0) layout marks each IP with its address
+        // family; the current layout has no such key.
+        assert_eq!(
+            result["ips"][0]["version"].is_string(),
+            *legacy,
+            "wrong result layout for version {version}: {result}"
         );
     }
     Ok(())

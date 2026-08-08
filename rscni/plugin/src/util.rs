@@ -10,7 +10,12 @@
 
 use std::{io, str::FromStr};
 
-use rscni_types::{error::Error, version::PluginInfo};
+use rscni_types::{
+    error::Error,
+    legacy,
+    types::{CNIResult, CNIResultWithVersion},
+    version::{PluginInfo, SpecVersion},
+};
 
 /// Renders the JSON a plugin writes in response to `CNI_COMMAND=VERSION`.
 ///
@@ -19,6 +24,17 @@ use rscni_types::{error::Error, version::PluginInfo};
 /// types crate has no business promising the exact string.
 pub fn version_json(info: &PluginInfo) -> Result<String, Error> {
     serde_json::to_string(info).map_err(|e| Error::FailedToDecode(e.to_string()))
+}
+
+/// Renders the JSON a plugin writes for a successful ADD: the result in the layout
+/// the negotiated version requires, declared under that version.
+pub fn result_json(version: SpecVersion, result: CNIResult) -> Result<String, Error> {
+    if version.is_legacy() {
+        serde_json::to_string(&legacy::CNIResult::new(version, result))
+    } else {
+        serde_json::to_string(&CNIResultWithVersion::new(version, result))
+    }
+    .map_err(|e| Error::FailedToDecode(e.to_string()))
 }
 
 /// Renders the human-readable text a plugin prints when `CNI_COMMAND` is unset.

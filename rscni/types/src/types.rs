@@ -351,21 +351,27 @@ pub struct CNIResult {
 /// plugin's ADD output into it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct CNIResultWithCNIVersion {
-    pub cni_version: String,
+pub struct CNIResultWithVersion {
+    cni_version: SpecVersion,
     #[serde(flatten)]
     inner: CNIResult,
 }
 
-impl CNIResultWithCNIVersion {
+impl CNIResultWithVersion {
     /// Wraps a result with the `cniVersion` it should be reported under — per the
     /// spec, the version supplied in the input configuration.
     #[must_use]
-    pub fn new(cni_version: impl Into<String>, result: CNIResult) -> Self {
+    pub const fn new(version: SpecVersion, result: CNIResult) -> Self {
         Self {
-            cni_version: cni_version.into(),
+            cni_version: version,
             inner: result,
         }
+    }
+
+    /// Returns the `cniVersion` the result is reported under.
+    #[must_use]
+    pub const fn cni_version(&self) -> SpecVersion {
+        self.cni_version
     }
 
     /// Returns the wrapped result.
@@ -2222,8 +2228,8 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // CNI spec requires cniVersion in the success result
         // ref: https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-success
-        let result: super::CNIResultWithCNIVersion = serde_json::from_str(input)?;
-        assert_eq!(result.cni_version, expected_version);
+        let result: super::CNIResultWithVersion = serde_json::from_str(input)?;
+        assert_eq!(result.cni_version.to_string(), expected_version);
         assert_eq!(result.inner.interfaces.len(), expected_interfaces);
         assert_eq!(result.inner.ips.len(), expected_ips);
         assert_eq!(result.inner.routes.len(), expected_routes);
