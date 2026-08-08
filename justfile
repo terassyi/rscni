@@ -39,7 +39,6 @@ doc-test:
 integration-test:
     cargo test --package integration-tests
 
-
 # Build example plugins
 build-examples:
     cargo build --package rscni-examples

@@ -31,7 +31,7 @@ $ # Start kind cluster
 $ # Copy rscni-debug to the container
 $ # Copy netconf.json to the container
 $ just kind-up
-cargo build --release --package rscni-examples
+cargo build --release --package rscni-examples --bin rscni-debug
 (snip)
     Finished `release` profile [optimized] target(s) in 5.25s
 kind create cluster

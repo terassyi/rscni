@@ -108,3 +108,7 @@ Manually execute from GitHub Actions:
 4. Check: https://crates.io/crates/CRATE
 
 Repeat for each crate being released, in the dependency order above.
+
+The workflow definition is taken from `main` while the sources are checked out at the
+tag. For a tag that predates the current workspace layout (before the `rscni-examples`
+package existed), dispatch the workflow from the tag's ref instead of `main`.

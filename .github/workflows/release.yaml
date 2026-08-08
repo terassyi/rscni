@@ -116,9 +116,15 @@ jobs:
       # Verify the packages can be built. Done for the whole publishable set rather than
       # just the tagged crate, because cargo verifies each packaged crate against the
       # others it just built — packaging rscni-plugin alone would fail whenever the
-      # rscni-types version it wants is not on crates.io yet.
+      # rscni-types version it wants is not on crates.io yet. Run in its own wiped
+      # target directory, not the cache-restored `target/`: verify builds reuse
+      # artifacts by version number, and the cache key (Cargo.lock with prefix
+      # restore-keys) cannot see that a restored artifact of the same version was
+      # built from different contents.
       - name: Dry-run package
-        run: cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
+        run: |
+          rm -rf target/package-verify
+          CARGO_TARGET_DIR=target/package-verify cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
 
   # Create GitHub Release (automatic on tag push)
   github-release:
