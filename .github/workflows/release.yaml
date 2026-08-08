@@ -108,7 +108,7 @@ jobs:
         run: cargo test --workspace --doc --all-features
 
       - name: Build debug plugins
-        run: cargo build --package rscni-debug --package async-rscni-debug
+        run: cargo build --package rscni-examples
 
       - name: Test cross-crate integration
         run: cargo test --package integration-tests

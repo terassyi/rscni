@@ -40,19 +40,12 @@ fn target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
 ///
 /// Every test needs a plugin binary, but `cargo build` takes the target directory's
 /// build lock, so calling it per test would serialize the whole suite behind N
-/// no-op builds. Both packages go in one invocation so that `rscni-plugin` is resolved
-/// under a single feature set instead of being rebuilt for each.
+/// no-op builds. One invocation builds every binary of the examples package.
 fn build_plugins() {
     static BUILT: OnceLock<()> = OnceLock::new();
     BUILT.get_or_init(|| {
         let output = Command::new("cargo")
-            .args([
-                "build",
-                "--package",
-                PluginType::Sync.name(),
-                "--package",
-                PluginType::Async.name(),
-            ])
+            .args(["build", "--package", "rscni-examples"])
             .output()
             .unwrap_or_else(|e| panic!("Failed to spawn cargo build: {e}"));
 

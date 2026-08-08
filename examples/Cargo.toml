@@ -1,11 +1,19 @@
 [package]
-name = "async-rscni-debug"
+name = "rscni-examples"
 version = "0.0.0"
 publish = false
 edition.workspace = true
 
+[[bin]]
+name = "rscni-debug"
+path = "rscni_debug.rs"
+
+[[bin]]
+name = "async-rscni-debug"
+path = "async_rscni_debug.rs"
+
 [dependencies]
-rscni-plugin = { path = "../../plugin", features = ["async"] }
+rscni-plugin = { path = "../plugin", features = ["async"] }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

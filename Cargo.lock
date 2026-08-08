@@ -12,17 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-rscni-debug"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "rscni-plugin",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -285,12 +274,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rscni-debug"
+name = "rscni-examples"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
  "rscni-plugin",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

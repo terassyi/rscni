@@ -11,9 +11,9 @@ default_plugin := "rscni-debug"
 
 # Start a kind cluster with the debug plugin chained in
 kind-up BIN=default_plugin:
-    cargo build --release --package {{ BIN }}
+    cargo build --release --package rscni-examples --bin {{ BIN }}
     kind create cluster
-    docker cp ../../target/release/{{ BIN }} kind-control-plane:/opt/cni/bin/rscni-debug
+    docker cp ../target/release/{{ BIN }} kind-control-plane:/opt/cni/bin/rscni-debug
     docker cp netconf.json kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
 
 # Show the CNI output the debug plugin captured in the kind cluster

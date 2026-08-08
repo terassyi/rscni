@@ -1,13 +1,11 @@
 [workspace]
 # A virtual manifest does not infer the resolver from `edition`, so it must be set here.
 resolver = "3"
-# Listed one by one rather than as `rscni/*`: that glob also matches `rscni/examples`,
-# which has no manifest of its own, and cargo then fails to load the workspace.
 members = [
-  "rscni/types",
-  "rscni/plugin",
-  "rscni/compat",
-  "rscni/examples/*",
+  "types",
+  "plugin",
+  "rscni",
+  "examples",
   "tests/integration",
 ]
 

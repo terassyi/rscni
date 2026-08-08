@@ -31,7 +31,7 @@ $ # Start kind cluster
 $ # Copy rscni-debug to the container
 $ # Copy netconf.json to the container
 $ just kind-up
-cargo build --release --package rscni-debug
+cargo build --release --package rscni-examples
 (snip)
     Finished `release` profile [optimized] target(s) in 5.25s
 kind create cluster
@@ -48,7 +48,7 @@ You can now use your cluster with:
 kubectl cluster-info --context kind-kind
 
 Thanks for using kind! 😊
-docker cp ../../target/release/rscni-debug kind-control-plane:/opt/cni/bin/rscni-debug
+docker cp ../target/release/rscni-debug kind-control-plane:/opt/cni/bin/rscni-debug
 Successfully copied 5.12MB to kind-control-plane:/opt/cni/bin/rscni-debug
 docker cp netconf.json kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
 Successfully copied 2.56kB to kind-control-plane:/etc/cni/net.d/01-rscni-debug.conflist
