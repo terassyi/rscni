@@ -39,12 +39,9 @@ doc-test:
 integration-test:
     cargo test --package integration-tests
 
-# One invocation, not one per package: separate invocations resolve rscni-plugin under
-# different feature sets and rebuild it each time.
-
 # Build example plugins
 build-examples:
-    cargo build --package rscni-debug --package async-rscni-debug
+    cargo build --package rscni-examples
 
 # Build all packages
 build:
@@ -62,17 +59,23 @@ clean:
 doc:
     cargo doc --workspace --all-features
 
-# All three in one invocation, not one each: cargo then verifies each packaged crate
-# against the others it just built. Packaging rscni-plugin alone fails until rscni-types
-# is actually on crates.io.
+# A release-preparation check, not a development one: run it after the version bump
+# (RELEASE.md step 3). Before the bump it fails by construction — the packaged crates
+# verify against crates.io, where the current version numbers resolve to the already
+# published (older) contents. All three crates go in one invocation: cargo then
+# verifies each packaged crate against the others it just built, so the set passes
+# before anything is actually published. The dedicated target directory is wiped
+# first because a verify build reuses artifacts by version number, and a leftover
+# from packaging different contents under the same version links stale rlibs.
 
-# Verify the publishable crates package cleanly
+# Verify the publishable crates package cleanly (run after a version bump)
 package:
-    cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
+    rm -rf target/package-verify
+    CARGO_TARGET_DIR=target/package-verify cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
 
 # The manual kind cluster walkthrough for the example plugins. Kept out of this file
 # because it needs docker and kind and never runs in CI, unlike everything above.
-mod examples 'rscni/examples'
+mod examples 'examples'
 
 # Show help
 help:

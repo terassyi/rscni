@@ -8,13 +8,13 @@ Each crate is versioned and released independently. Tags are `<crate>-v<version>
 
 | Crate | Directory | Example tag |
 | --- | --- | --- |
-| `rscni-types` | `rscni/types` | `rscni-types-v0.1.0` |
-| `rscni-plugin` | `rscni/plugin` | `rscni-plugin-v0.3.0` |
-| `rscni` (deprecated shim) | `rscni/compat` | `rscni-v0.3.0` |
-| `rscni-runtime` (planned) | `rscni/runtime` | `rscni-runtime-v0.1.0` |
+| `rscni-types` | `types` | `rscni-types-v0.1.0` |
+| `rscni-plugin` | `plugin` | `rscni-plugin-v0.3.0` |
+| `rscni` (deprecated shim) | `rscni` | `rscni-v0.3.0` |
+| `rscni-runtime` (planned) | `runtime` | `rscni-runtime-v0.1.0` |
 
 When a crate is added, it needs adding to the root `members`, to `publish.yaml`'s `crate`
-choices, to the `cargo package` list in `justfile` / `ci.yaml` / `release.yaml`, and as a
+choices, to the `cargo package` list in `justfile` / `release.yaml`, and as a
 row in `ci.yaml`'s unit-test matrix. The lint command and `release.yaml`'s tests use
 `--workspace` and pick it up on their own.
 
@@ -50,7 +50,7 @@ git pull origin main
 ### 2. Update Version
 
 Update `version` in the crate's own `Cargo.toml`, in any manifest that depends on it (for
-example the `rscni-types` requirement in `rscni/plugin/Cargo.toml`), and in the docs that
+example the `rscni-types` requirement in `plugin/Cargo.toml`), and in the docs that
 name the version.
 
 ### 3. Run Tests
@@ -60,6 +60,10 @@ just lint
 just test
 just package   # every publishable crate packages cleanly
 ```
+
+`just package` only passes after step 2: it verifies the packaged crates against
+crates.io plus each other, so with the old (already published) version numbers still
+in place it resolves the published contents and fails.
 
 ### 4. Create a Release Pull Request
 
@@ -104,3 +108,7 @@ Manually execute from GitHub Actions:
 4. Check: https://crates.io/crates/CRATE
 
 Repeat for each crate being released, in the dependency order above.
+
+The workflow definition is taken from `main` while the sources are checked out at the
+tag. For a tag that predates the current workspace layout (before the `rscni-examples`
+package existed), dispatch the workflow from the tag's ref instead of `main`.

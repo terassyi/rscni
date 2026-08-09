@@ -63,7 +63,7 @@ jobs:
           cargo test --workspace --lib
           cargo test --workspace --lib --all-features
           cargo test --workspace --doc --all-features
-          cargo build --package rscni-debug --package async-rscni-debug
+          cargo build --package rscni-examples
           cargo test --package integration-tests
 
       # Dependencies must already be on crates.io: rscni-types before rscni-plugin,

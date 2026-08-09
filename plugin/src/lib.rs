@@ -11,9 +11,9 @@
 //! [`rscni-types`](https://docs.rs/rscni-types) and are re-exported here, so
 //! `rscni_plugin::types::NetConf` and `rscni_types::types::NetConf` are the same type.
 //!
-//! Please see [rscni-debug](https://github.com/terassyi/rscni/blob/main/rscni/examples/README.md) for the example implementation.
+//! Please see [rscni-debug](https://github.com/terassyi/rscni/blob/main/examples/README.md) for the example implementation.
 //! To use async version of rscni, please use it with `feature=async` flag.
-//! The usage of async version, see [async-rscni-debug](https://github.com/terassyi/rscni/blob/main/rscni/examples/async-rscni-debug/src/main.rs).
+//! The usage of async version, see [async-rscni-debug](https://github.com/terassyi/rscni/blob/main/examples/async_rscni_debug.rs).
 //!
 //! # Quick start
 //!

@@ -148,10 +148,10 @@ See the [API documentation](https://docs.rs/rscni-plugin) for complete type defi
 
 ## Examples
 
-Complete working examples live in [`rscni/examples/`](https://github.com/terassyi/rscni/tree/main/rscni/examples):
+Complete working examples live in [`examples/`](https://github.com/terassyi/rscni/tree/main/examples):
 
-- [**rscni-debug**](https://github.com/terassyi/rscni/blob/main/rscni/examples/rscni-debug/src/main.rs) - Synchronous CNI plugin for debugging
-- [**async-rscni-debug**](https://github.com/terassyi/rscni/blob/main/rscni/examples/async-rscni-debug/src/main.rs) - Asynchronous CNI plugin for debugging
+- [**rscni-debug**](https://github.com/terassyi/rscni/blob/main/examples/rscni_debug.rs) - Synchronous CNI plugin for debugging
+- [**async-rscni-debug**](https://github.com/terassyi/rscni/blob/main/examples/async_rscni_debug.rs) - Asynchronous CNI plugin for debugging
 
 ## License
 

@@ -161,10 +161,8 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-target-e2e-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-target-e2e-
-      # One invocation for both plugins so rscni-plugin resolves under a single feature
-      # set instead of being rebuilt per package.
       - name: Build debug plugins
-        run: cargo build --package rscni-debug --package async-rscni-debug
+        run: cargo build --package rscni-examples
       # Drives the example plugin binaries over env + stdin as a runtime would, and pins
       # the `rscni` 0.3.0 facade to the module paths 0.2.x exposed.
       - name: Test end to end

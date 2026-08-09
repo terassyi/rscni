@@ -9,9 +9,9 @@ Rust libraries for both sides of [CNI (Container Network Interface)](https://www
 
 | Crate | Version | Use it to |
 | --- | --- | --- |
-| [`rscni-plugin`](./rscni/plugin) | [![crates.io](https://img.shields.io/crates/v/rscni-plugin.svg)](https://crates.io/crates/rscni-plugin) | Write a CNI plugin — the process a container runtime invokes |
+| [`rscni-plugin`](./plugin) | [![crates.io](https://img.shields.io/crates/v/rscni-plugin.svg)](https://crates.io/crates/rscni-plugin) | Write a CNI plugin — the process a container runtime invokes |
 | `rscni-runtime` | *planned* | Invoke CNI plugins — the Rust counterpart to Go's [`libcni`](https://github.com/containernetworking/cni/tree/v1.3.0/libcni) |
-| [`rscni-types`](./rscni/types) | [![crates.io](https://img.shields.io/crates/v/rscni-types.svg)](https://crates.io/crates/rscni-types) | Work with the specification types on their own |
+| [`rscni-types`](./types) | [![crates.io](https://img.shields.io/crates/v/rscni-types.svg)](https://crates.io/crates/rscni-types) | Work with the specification types on their own |
 
 Both sides share `rscni-types`, so a plugin and a runtime built from this repository agree on the wire format by construction rather than by convention. Keeping them together also means each can serve as the other's reference implementation — `rscni-runtime` is tested by driving the `rscni-plugin`-based example plugins.
 
@@ -25,7 +25,7 @@ Both sides share `rscni-types`, so a plugin and a runtime built from this reposi
 > rscni-plugin = "0.3"
 > ```
 >
-> Then replace `rscni::` with `rscni_plugin::`. The module layout and feature names are unchanged. [`rscni` 0.3.0](./rscni/compat) is a deprecated shim that re-exports `rscni-plugin` under the old paths so existing code keeps compiling; it will not be updated again.
+> Then replace `rscni::` with `rscni_plugin::`. The module layout and feature names are unchanged. [`rscni` 0.3.0](./rscni) is a deprecated shim that re-exports `rscni-plugin` under the old paths so existing code keeps compiling; it will not be updated again.
 >
 > The rename happened because the bare name `rscni` did not say which side of CNI it implemented.
 
@@ -55,19 +55,19 @@ plugin.run(&MyCniPlugin).expect("Failed to execute CNI command");
 ```
 
 An async version is available behind the `async` feature. The
-[`rscni-plugin` README](./rscni/plugin/README.md) has the full example for both,
+[`rscni-plugin` README](./plugin/README.md) has the full example for both,
 installation, and the type reference.
 
 ## Examples
 
-Complete working examples are in [`rscni/examples/`](./rscni/examples):
+Complete working examples are in [`examples/`](./examples):
 
-- [**rscni-debug**](./rscni/examples/rscni-debug/src/main.rs) - Synchronous CNI plugin for debugging
-- [**async-rscni-debug**](./rscni/examples/async-rscni-debug/src/main.rs) - Asynchronous CNI plugin for debugging
+- [**rscni-debug**](./examples/rscni_debug.rs) - Synchronous CNI plugin for debugging
+- [**async-rscni-debug**](./examples/async_rscni_debug.rs) - Asynchronous CNI plugin for debugging
 
 ```bash
 # Build the debug plugin
-cargo build --package rscni-debug
+cargo build --package rscni-examples
 
 # Test with CNI environment
 CNI_COMMAND=VERSION ./target/debug/rscni-debug
@@ -81,15 +81,14 @@ CNI_COMMAND=VERSION ./target/debug/rscni-debug
 just lint     # fmt and clippy across the workspace
 just test     # unit, doc and integration tests
 just build    # build every crate
-just package  # check the publishable crates package cleanly
 just --list   # everything else
 ```
 
 The example plugins come with a manual [kind](https://kind.sigs.k8s.io/) walkthrough —
 `just examples::kind-up` installs one into a real cluster so you can watch it being
-called. Its recipes live in [`rscni/examples/justfile`](./rscni/examples/justfile),
+called. Its recipes live in [`examples/justfile`](./examples/justfile),
 since they need docker and kind and never run in CI. See
-[`rscni/examples/`](./rscni/examples).
+[`examples/`](./examples).
 
 ## Releasing
 
