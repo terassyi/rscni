@@ -82,6 +82,118 @@ impl From<Cmd> for &str {
     }
 }
 
+/// A container ID: the value of [`CNI_CONTAINERID`], which satisfies the character
+/// rule the specification shares with network names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerId(String);
+
+impl TryFrom<String> for ContainerId {
+    type Error = Error;
+
+    fn try_from(s: String) -> Result<Self, Error> {
+        if s.is_empty() {
+            return Err(Error::InvalidEnvValue("missing containerID".to_string()));
+        }
+        if !NetConf::is_valid_name(&s) {
+            return Err(Error::InvalidEnvValue(format!(
+                "invalid characters in containerID: {s}"
+            )));
+        }
+        Ok(Self(s))
+    }
+}
+
+impl FromStr for ContainerId {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.to_string())
+    }
+}
+
+impl std::ops::Deref for ContainerId {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for ContainerId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ContainerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// An interface name: the value of [`CNI_IFNAME`].
+///
+/// Satisfies the kernel's naming rules, which the specification does not restate: 15
+/// is `IFNAMSIZ - 1`, and the rest is what `dev_valid_name` rejects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceName(String);
+
+impl TryFrom<String> for InterfaceName {
+    type Error = Error;
+
+    fn try_from(s: String) -> Result<Self, Error> {
+        if s.is_empty() {
+            return Err(Error::InvalidEnvValue(
+                "interface name is empty".to_string(),
+            ));
+        }
+        if s.len() > 15 {
+            return Err(Error::InvalidEnvValue(format!(
+                "interface name is too long: interface name should be less than 16 characters: {s}"
+            )));
+        }
+        if s == "." || s == ".." {
+            return Err(Error::InvalidEnvValue(
+                "interface name is . or ..".to_string(),
+            ));
+        }
+        if s.chars().any(|c| c == '/' || c == ':' || c.is_whitespace()) {
+            return Err(Error::InvalidEnvValue(format!(
+                "interface name contains / or : or whitespace characters: {s}"
+            )));
+        }
+        Ok(Self(s))
+    }
+}
+
+impl FromStr for InterfaceName {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.to_string())
+    }
+}
+
+impl std::ops::Deref for InterfaceName {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for InterfaceName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for InterfaceName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// Deserializes a JSON `null` as the type's default, making `null` equivalent to
 /// omitting the key. Go plugins parse their stdin with `json.Unmarshal`, which no-ops
 /// a `null` into the field's zero value, so on the plugin side of the protocol every
@@ -215,15 +327,14 @@ impl NetConf {
 
     /// The character rule the specification states for network names and, identically,
     /// for container IDs: an ASCII alphanumeric, then alphanumerics, `_`, `.` and `-`.
-    #[must_use]
-    pub fn valid_name(value: &str) -> bool {
+    fn is_valid_name(value: &str) -> bool {
         let mut chars = value.chars();
         chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
             && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
     }
 
     /// Checks that the network name is present and satisfies
-    /// [`valid_name`](Self::valid_name), as both sides of the protocol do.
+    /// [`is_valid_name`](Self::is_valid_name), as both sides of the protocol do.
     ///
     /// # Errors
     ///
@@ -234,7 +345,7 @@ impl NetConf {
                 "missing network name".to_string(),
             ));
         }
-        if !Self::valid_name(&self.name) {
+        if !Self::is_valid_name(&self.name) {
             return Err(Error::InvalidNetworkConfig(format!(
                 "invalid characters found in network name: {}",
                 self.name
@@ -627,9 +738,33 @@ mod tests {
     use crate::error::Error;
 
     use super::{
-        CNIResult, Cmd, Dns, GcAttachment, Interface, IpConfig, Ipam, NetConf, NetConfList,
-        PortMapping, Protocol, Route, RuntimeConf,
+        CNIResult, Cmd, ContainerId, Dns, GcAttachment, Interface, InterfaceName, IpConfig, Ipam,
+        NetConf, NetConfList, PortMapping, Protocol, Route, RuntimeConf,
     };
+
+    #[rstest]
+    #[case("c1", true)]
+    #[case("k8s_POD.name-1", true)]
+    #[case("_leading-underscore", false)]
+    #[case("bad*id", false)]
+    #[case("", false)]
+    fn container_id_accepts_the_spec_character_rule(#[case] raw: &str, #[case] valid: bool) {
+        assert_eq!(ContainerId::from_str(raw).is_ok(), valid, "{raw}");
+    }
+
+    #[rstest]
+    #[case("eth0", true)]
+    #[case("abcdefghijklmno", true)]
+    #[case("abcdefghijklmnop", false)]
+    #[case(".", false)]
+    #[case("..", false)]
+    #[case("eth0:0", false)]
+    #[case("eth 0", false)]
+    #[case("net/0", false)]
+    #[case("", false)]
+    fn interface_name_accepts_the_kernel_naming_rules(#[case] raw: &str, #[case] valid: bool) {
+        assert_eq!(InterfaceName::from_str(raw).is_ok(), valid, "{raw}");
+    }
 
     #[rstest]
     #[case("ADD", Cmd::Add)]

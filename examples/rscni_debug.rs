@@ -97,7 +97,7 @@ fn add(args: Args) -> Result<CNIResult, Error> {
         .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let container_id = args.container_id().unwrap_or("unknown");
+    let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
     let mut file = debug_conf.open_file(container_id, cmd)?;
     file.write(cni_output.as_bytes())
         .map_err(|e| Error::IOFailure(e.to_string()))?;
@@ -117,7 +117,7 @@ fn del(args: Args) -> Result<CNIResult, Error> {
         .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let container_id = args.container_id().unwrap_or("unknown");
+    let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
     let mut file = debug_conf.open_file(container_id, cmd)?;
     file.write(cni_output.as_bytes())
         .map_err(|e| Error::IOFailure(e.to_string()))?;
@@ -137,7 +137,7 @@ fn check(args: Args) -> Result<CNIResult, Error> {
         .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
-    let container_id = args.container_id().unwrap_or("unknown");
+    let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
     let mut file = debug_conf.open_file(container_id, cmd)?;
     file.write(cni_output.as_bytes())
         .map_err(|e| Error::IOFailure(e.to_string()))?;
@@ -166,8 +166,8 @@ STDIN_DATA: {}
 --------------------
 "#,
         cmd,
-        args.container_id().unwrap_or("<none>"),
-        args.ifname().unwrap_or("<none>"),
+        args.container_id().map_or("<none>", AsRef::as_ref),
+        args.ifname().map_or("<none>", AsRef::as_ref),
         args.netns(),
         args.path(),
         args.args(),
