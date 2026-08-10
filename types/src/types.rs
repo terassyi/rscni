@@ -13,8 +13,9 @@
 //! - [`Cmd`] - The operation being requested, i.e. the value of `CNI_COMMAND`
 //!
 
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -366,11 +367,11 @@ pub struct Dns {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Route {
     /// The destination of the route, in CIDR notation.
-    pub dst: String, // represent ipnet::IpNet
+    pub dst: IpNet,
     /// The next hop address.
     /// If unset, a value in `gateway` in the `ips` array in the CNI Result Type may be used.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub gw: Option<String>,
+    pub gw: Option<IpAddr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtu: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -510,10 +511,10 @@ pub struct IpConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interface: Option<u32>,
     /// an IP address in CIDR notation.
-    pub address: String,
+    pub address: IpNet,
     /// the default gateway for this subnet, if one exists.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub gateway: Option<String>,
+    pub gateway: Option<IpAddr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -967,8 +968,8 @@ mod tests {
                   ips: vec![
                     IpConfig{
                       interface: Some(2),
-                      address: "10.1.0.5/16".to_string(),
-                      gateway:Some("10.1.0.1".to_string()),
+                      address: "10.1.0.5/16".parse()?,
+                      gateway: Some("10.1.0.1".parse()?),
                     },
                   ],
                   interfaces: vec![
@@ -999,7 +1000,7 @@ mod tests {
                   ],
                   routes: vec![
                     Route{
-                      dst: "0.0.0.0/0".to_string(),
+                      dst: "0.0.0.0/0".parse()?,
                       gw: None,
                       mtu: None,
                       advmss: None,
@@ -1090,8 +1091,8 @@ mod tests {
                   ips: vec![
                     IpConfig{
                       interface: Some(2),
-                      address: "10.1.0.5/16".to_string(),
-                      gateway:Some("10.1.0.1".to_string()),
+                      address: "10.1.0.5/16".parse()?,
+                      gateway: Some("10.1.0.1".parse()?),
                     },
                   ],
                   interfaces: vec![
@@ -1122,7 +1123,7 @@ mod tests {
                   ],
                   routes: vec![
                     Route{
-                      dst: "0.0.0.0/0".to_string(),
+                      dst: "0.0.0.0/0".parse()?,
                       gw: None,
                       mtu: None,
                       advmss: None,
@@ -1211,8 +1212,8 @@ mod tests {
                   ips: vec![
                     IpConfig{
                       interface: Some(2),
-                      address: "10.1.0.5/16".to_string(),
-                      gateway:Some("10.1.0.1".to_string()),
+                      address: "10.1.0.5/16".parse()?,
+                      gateway: Some("10.1.0.1".parse()?),
                     },
                   ],
                   interfaces: vec![
@@ -1243,7 +1244,7 @@ mod tests {
                   ],
                   routes: vec![
                     Route{
-                      dst: "0.0.0.0/0".to_string(),
+                      dst: "0.0.0.0/0".parse()?,
                       gw: None,
                       mtu: None,
                       advmss: None,
@@ -1327,8 +1328,8 @@ mod tests {
                   ips: vec![
                     IpConfig{
                       interface: Some(2),
-                      address: "10.1.0.5/16".to_string(),
-                      gateway:Some("10.1.0.1".to_string()),
+                      address: "10.1.0.5/16".parse()?,
+                      gateway: Some("10.1.0.1".parse()?),
                     },
                   ],
                   interfaces: vec![
@@ -1359,7 +1360,7 @@ mod tests {
                   ],
                   routes: vec![
                     Route{
-                      dst: "0.0.0.0/0".to_string(),
+                      dst: "0.0.0.0/0".parse()?,
                       gw: None,
                       mtu: None,
                       advmss: None,
@@ -1457,8 +1458,8 @@ mod tests {
                   ips: vec![
                     IpConfig{
                       interface: Some(2),
-                      address: "10.1.0.5/16".to_string(),
-                      gateway:Some("10.1.0.1".to_string()),
+                      address: "10.1.0.5/16".parse()?,
+                      gateway: Some("10.1.0.1".parse()?),
                     },
                   ],
                   interfaces: vec![
@@ -1489,7 +1490,7 @@ mod tests {
                   ],
                   routes: vec![
                     Route{
-                      dst: "0.0.0.0/0".to_string(),
+                      dst: "0.0.0.0/0".parse()?,
                       gw: None,
                       mtu: None,
                       advmss: None,
@@ -1588,8 +1589,8 @@ mod tests {
                   ips: vec![
                     IpConfig{
                       interface: Some(2),
-                      address: "10.1.0.5/16".to_string(),
-                      gateway:Some("10.1.0.1".to_string()),
+                      address: "10.1.0.5/16".parse()?,
+                      gateway: Some("10.1.0.1".parse()?),
                     },
                   ],
                   interfaces: vec![
@@ -1620,7 +1621,7 @@ mod tests {
                   ],
                   routes: vec![
                     Route{
-                      dst: "0.0.0.0/0".to_string(),
+                      dst: "0.0.0.0/0".parse()?,
                       gw: None,
                       mtu: None,
                       advmss: None,
@@ -1683,12 +1684,12 @@ mod tests {
           interfaces: Vec::new(),
           ips: vec![IpConfig{
             interface: None,
-            address: "10.1.0.5/16".to_string(),
-            gateway: Some("10.1.0.1".to_string()),
+            address: "10.1.0.5/16".parse()?,
+            gateway: Some("10.1.0.1".parse()?),
           }],
           routes: vec![
             Route{
-              dst: "0.0.0.0/0".to_string(),
+              dst: "0.0.0.0/0".parse()?,
               gw: None,
               mtu: None,
               advmss: None,
@@ -1768,12 +1769,12 @@ mod tests {
           ],
           ips: vec![IpConfig{
             interface: Some(2),
-            address: "10.1.0.5/16".to_string(),
-            gateway: Some("10.1.0.1".to_string()),
+            address: "10.1.0.5/16".parse()?,
+            gateway: Some("10.1.0.1".parse()?),
           }],
           routes: vec![
             Route{
-              dst: "0.0.0.0/0".to_string(),
+              dst: "0.0.0.0/0".parse()?,
               gw: None,
               mtu: None,
               advmss: None,
@@ -1853,12 +1854,12 @@ mod tests {
           ],
           ips: vec![IpConfig{
             interface: Some(2),
-            address: "10.1.0.5/16".to_string(),
-            gateway: Some("10.1.0.1".to_string()),
+            address: "10.1.0.5/16".parse()?,
+            gateway: Some("10.1.0.1".parse()?),
           }],
           routes: vec![
             Route{
-              dst: "0.0.0.0/0".to_string(),
+              dst: "0.0.0.0/0".parse()?,
               gw: None,
               mtu: None,
               advmss: None,
@@ -2002,8 +2003,8 @@ mod tests {
     #[case(
         IpConfig {
             interface: Some(0),
-            address: "192.168.1.10/24".to_string(),
-            gateway: Some("192.168.1.1".to_string()),
+            address: "192.168.1.10/24".parse()?,
+            gateway: Some("192.168.1.1".parse()?),
         },
         true,
         true
@@ -2011,7 +2012,7 @@ mod tests {
     #[case(
         IpConfig {
             interface: None,
-            address: "10.0.0.1/8".to_string(),
+            address: "10.0.0.1/8".parse()?,
             gateway: None,
         },
         false,
@@ -2037,8 +2038,8 @@ mod tests {
     #[rstest]
     #[case(
         Route {
-            dst: "0.0.0.0/0".to_string(),
-            gw: Some("192.168.1.1".to_string()),
+            dst: "0.0.0.0/0".parse()?,
+            gw: Some("192.168.1.1".parse()?),
             mtu: Some(1500),
             advmss: Some(1460),
             priority: None,
@@ -2050,7 +2051,7 @@ mod tests {
     )]
     #[case(
         Route {
-            dst: "10.0.0.0/8".to_string(),
+            dst: "10.0.0.0/8".parse()?,
             gw: None,
             mtu: None,
             advmss: None,
@@ -2180,12 +2181,12 @@ mod tests {
             }],
             ips: vec![IpConfig {
                 interface: Some(0),
-                address: "192.168.1.10/24".to_string(),
-                gateway: Some("192.168.1.1".to_string()),
+                address: "192.168.1.10/24".parse()?,
+                gateway: Some("192.168.1.1".parse()?),
             }],
             routes: vec![Route {
-                dst: "0.0.0.0/0".to_string(),
-                gw: Some("192.168.1.1".to_string()),
+                dst: "0.0.0.0/0".parse()?,
+                gw: Some("192.168.1.1".parse()?),
                 mtu: None,
                 advmss: None,
                 priority: None,
@@ -2389,8 +2390,8 @@ mod tests {
     #[rstest]
     #[case(
         Route {
-            dst: "192.168.0.0/16".to_string(),
-            gw: Some("10.1.0.1".to_string()),
+            dst: "192.168.0.0/16".parse()?,
+            gw: Some("10.1.0.1".parse()?),
             mtu: Some(1500),
             advmss: Some(1460),
             priority: None,
@@ -2402,7 +2403,7 @@ mod tests {
     )]
     #[case(
         Route {
-            dst: "10.0.0.0/8".to_string(),
+            dst: "10.0.0.0/8".parse()?,
             gw: None,
             mtu: Some(9000),
             advmss: None,

@@ -465,10 +465,12 @@ impl Plugin {
 mod tests {
     use super::*;
     use crate::types::{Dns, Interface, IpConfig, Route};
+    use rscni_types::ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
     use std::io::{Cursor, Read, Write};
+    use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
     // Thread-local storage for mock environment variables
@@ -569,6 +571,10 @@ mod tests {
         });
     }
 
+    const ADDRESS: IpNet = IpNet::V4(Ipv4Net::new_assert(Ipv4Addr::new(10, 1, 0, 5), 16));
+    const DEFAULT_ROUTE: IpNet = IpNet::V4(Ipv4Net::new_assert(Ipv4Addr::UNSPECIFIED, 0));
+    const GATEWAY: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 1, 0, 1));
+
     // Mock Cni implementation
     struct MockCni;
 
@@ -585,12 +591,12 @@ mod tests {
                 }],
                 ips: vec![IpConfig {
                     interface: Some(0),
-                    address: "10.1.0.5/16".to_string(),
-                    gateway: Some("10.1.0.1".to_string()),
+                    address: ADDRESS,
+                    gateway: Some(GATEWAY),
                 }],
                 routes: vec![Route {
-                    dst: "0.0.0.0/0".to_string(),
-                    gw: Some("10.1.0.1".to_string()),
+                    dst: DEFAULT_ROUTE,
+                    gw: Some(GATEWAY),
                     mtu: None,
                     advmss: None,
                     priority: None,

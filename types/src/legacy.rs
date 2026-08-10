@@ -11,6 +11,9 @@
 //! `ip4`/`ip6`-shaped layout; no maintained runtime issues those versions, and this
 //! crate does not represent that layout.
 
+use std::net::IpAddr;
+
+use ipnet::IpNet;
 use serde::Serialize;
 
 use crate::{types, version::SpecVersion};
@@ -77,40 +80,22 @@ struct IpConfig {
     version: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     interface: Option<u32>,
-    address: String,
+    address: IpNet,
     #[serde(skip_serializing_if = "Option::is_none")]
-    gateway: Option<String>,
+    gateway: Option<IpAddr>,
 }
 
 impl From<types::IpConfig> for IpConfig {
     fn from(ip: types::IpConfig) -> Self {
         Self {
-            version: Self::address_family(&ip.address),
+            // `to_canonical` folds an IPv4-mapped address into IPv4, as the reference does.
+            version: match ip.address.addr().to_canonical() {
+                IpAddr::V4(_) => "4",
+                IpAddr::V6(_) => "6",
+            },
             interface: ip.interface,
             address: ip.address,
             gateway: ip.gateway,
-        }
-    }
-}
-
-impl IpConfig {
-    /// The family marker for a CIDR-notation address. An IPv4-mapped IPv6 address
-    /// counts as IPv4, as in the reference; unparseable text falls back to the colon.
-    fn address_family(address: &str) -> &'static str {
-        use std::net::IpAddr;
-
-        let ip = address.split_once('/').map_or(address, |(ip, _)| ip);
-        match ip.parse::<IpAddr>() {
-            Ok(IpAddr::V4(_)) => "4",
-            Ok(IpAddr::V6(v6)) if v6.to_ipv4_mapped().is_some() => "4",
-            Ok(IpAddr::V6(_)) => "6",
-            Err(_) => {
-                if ip.contains(':') {
-                    "6"
-                } else {
-                    "4"
-                }
-            }
         }
     }
 }
@@ -139,18 +124,18 @@ mod tests {
             ips: vec![
                 types::IpConfig {
                     interface: Some(0),
-                    address: "10.1.0.5/16".to_string(),
-                    gateway: Some("10.1.0.1".to_string()),
+                    address: "10.1.0.5/16".parse()?,
+                    gateway: Some("10.1.0.1".parse()?),
                 },
                 types::IpConfig {
                     interface: None,
-                    address: "fd00::2/64".to_string(),
+                    address: "fd00::2/64".parse()?,
                     gateway: None,
                 },
             ],
             routes: vec![types::Route {
-                dst: "0.0.0.0/0".to_string(),
-                gw: Some("10.1.0.1".to_string()),
+                dst: "0.0.0.0/0".parse()?,
+                gw: Some("10.1.0.1".parse()?),
                 mtu: Some(1400),
                 advmss: None,
                 priority: Some(100),
@@ -197,12 +182,15 @@ mod tests {
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case("10.1.0.5/16", "4")]
-    #[case("fd00::2/64", "6")]
-    // An IPv4-mapped IPv6 address counts as IPv4.
-    #[case("::ffff:10.1.0.5/96", "4")]
-    fn family_matches_the_reference(#[case] address: &str, #[case] family: &str) {
-        assert_eq!(super::IpConfig::address_family(address), family);
+    // Plain IPv4 and IPv6 are pinned by the golden test above.
+    #[test]
+    fn mapped_ipv4_counts_as_ipv4() -> Result<(), Box<dyn std::error::Error>> {
+        let ip = super::IpConfig::from(types::IpConfig {
+            interface: None,
+            address: "::ffff:10.1.0.5/96".parse()?,
+            gateway: None,
+        });
+        assert_eq!(ip.version, "4");
+        Ok(())
     }
 }

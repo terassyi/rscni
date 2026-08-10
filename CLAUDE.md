@@ -12,6 +12,11 @@ Implementation policies for this repository, set by the owner.
 - Do not swallow errors outside test code.
 - No pointless refactoring. Removing redundant code is fine.
 - Keep doc comments and signatures short. Write explicit version ranges, not vague terms.
+- Write a comment only for what the code cannot say: a constraint, or a decision whose
+  reason is not visible. Never restate the code, the signature, or a name. Never explain
+  a change, its history, or why it is correct — that belongs in the PR.
+- One line is the default. If a comment needs several lines, the code probably needs
+  fixing instead.
 
 ## Tests
 
