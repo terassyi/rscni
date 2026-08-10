@@ -28,7 +28,9 @@ async fn main() {
     // of the CNI conversation.
     if let Err(err) = plugin.run(&debug_conf).await {
         eprintln!("{err}: {}", err.details());
-        std::process::exit(i32::try_from(u32::from(&err)).unwrap_or(1));
+        // Clamped to at least 1: a failure must not exit 0, and an error read back
+        // from another plugin can carry any code, including 0.
+        std::process::exit(i32::try_from(u32::from(&err)).unwrap_or(1).max(1));
     }
 }
 

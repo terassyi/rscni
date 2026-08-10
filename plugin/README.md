@@ -17,7 +17,7 @@ This is the *plugin* side of CNI: the process a container runtime invokes. To in
 
 - **Idiomatic Rust**: Trait-based design with type safety and zero-cost abstractions
 - **Async Support**: Optional async/await support for high-performance plugins
-- **CNI Spec Compliant**: Supports CNI specification v0.3.1, v0.4.0, v1.0.0 and v1.1.0
+- **CNI Spec Compliant**: Supports CNI specification v0.3.0, v0.3.1, v0.4.0, v1.0.0 and v1.1.0
 - **Well-tested**: Comprehensive unit tests and integration tests
 
 ## Installation

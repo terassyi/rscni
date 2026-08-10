@@ -25,10 +25,13 @@ pub struct CNIResult {
     interfaces: Vec<Interface>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     ips: Vec<IpConfig>,
+    // Whole routes, extra attributes included: the reference implementation shares
+    // one route type between the layouts and marshals every field.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    routes: Vec<Route>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dns: Option<types::Dns>,
+    routes: Vec<types::Route>,
+    // Always serialized: this layout has no empty-dns fixup, so `"dns": {}` appears
+    // even when empty.
+    dns: types::Dns,
 }
 
 impl CNIResult {
@@ -40,8 +43,8 @@ impl CNIResult {
             cni_version: version,
             interfaces: result.interfaces.into_iter().map(Into::into).collect(),
             ips: result.ips.into_iter().map(Into::into).collect(),
-            routes: result.routes.into_iter().map(Into::into).collect(),
-            dns: result.dns,
+            routes: result.routes,
+            dns: result.dns.unwrap_or_default(),
         }
     }
 }
@@ -51,6 +54,7 @@ impl CNIResult {
 #[serde(rename_all = "camelCase")]
 struct Interface {
     name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     mac: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     sandbox: Option<String>,
@@ -81,9 +85,7 @@ struct IpConfig {
 impl From<types::IpConfig> for IpConfig {
     fn from(ip: types::IpConfig) -> Self {
         Self {
-            // An IPv6 address always contains a colon and an IPv4 address never does,
-            // so the family can be read off the CIDR text.
-            version: if ip.address.contains(':') { "6" } else { "4" },
+            version: Self::address_family(&ip.address),
             interface: ip.interface,
             address: ip.address,
             gateway: ip.gateway,
@@ -91,19 +93,24 @@ impl From<types::IpConfig> for IpConfig {
     }
 }
 
-/// [`types::Route`] without the fields 1.1.0 added.
-#[derive(Debug, Serialize)]
-struct Route {
-    dst: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    gw: Option<String>,
-}
+impl IpConfig {
+    /// The family marker for a CIDR-notation address. An IPv4-mapped IPv6 address
+    /// counts as IPv4, as in the reference; unparseable text falls back to the colon.
+    fn address_family(address: &str) -> &'static str {
+        use std::net::IpAddr;
 
-impl From<types::Route> for Route {
-    fn from(route: types::Route) -> Self {
-        Self {
-            dst: route.dst,
-            gw: route.gw,
+        let ip = address.split_once('/').map_or(address, |(ip, _)| ip);
+        match ip.parse::<IpAddr>() {
+            Ok(IpAddr::V4(_)) => "4",
+            Ok(IpAddr::V6(v6)) if v6.to_ipv4_mapped().is_some() => "4",
+            Ok(IpAddr::V6(_)) => "6",
+            Err(_) => {
+                if ip.contains(':') {
+                    "6"
+                } else {
+                    "4"
+                }
+            }
         }
     }
 }
@@ -169,12 +176,33 @@ mod tests {
                     {"version": "4", "interface": 0, "address": "10.1.0.5/16", "gateway": "10.1.0.1"},
                     {"version": "6", "address": "fd00::2/64"}
                 ],
+                // Whole routes; only interfaces lose what 1.1.0 added.
                 "routes": [
-                    {"dst": "0.0.0.0/0", "gw": "10.1.0.1"}
+                    {"dst": "0.0.0.0/0", "gw": "10.1.0.1", "mtu": 1400, "priority": 100}
                 ],
                 "dns": {"nameservers": ["10.1.0.1"]}
             })
         );
         Ok(())
+    }
+
+    #[test]
+    fn legacy_layout_of_an_empty_result() -> Result<(), Box<dyn std::error::Error>> {
+        // The reference 0.4.0 result always carries a dns object, even empty.
+        let legacy = CNIResult::new("0.4.0".parse()?, types::CNIResult::default());
+        assert_eq!(
+            serde_json::to_value(&legacy)?,
+            json!({"cniVersion": "0.4.0", "dns": {}})
+        );
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case("10.1.0.5/16", "4")]
+    #[case("fd00::2/64", "6")]
+    // An IPv4-mapped IPv6 address counts as IPv4.
+    #[case("::ffff:10.1.0.5/96", "4")]
+    fn family_matches_the_reference(#[case] address: &str, #[case] family: &str) {
+        assert_eq!(super::IpConfig::address_family(address), family);
     }
 }
