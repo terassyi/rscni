@@ -30,6 +30,10 @@
 //!
 //! v0.3.0, v0.3.1, v0.4.0, v1.0.0 and v1.1.0.
 
+/// Re-exported: [`types`] uses its types in public signatures, so a plugin can name
+/// them without depending on `ipnet` itself.
+pub use ipnet;
+
 pub mod error;
 pub mod legacy;
 pub mod types;

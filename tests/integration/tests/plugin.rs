@@ -2,7 +2,7 @@ use rscni::types::{CNI_ARGS, CNI_COMMAND, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS
 use serde_json::Value;
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -103,11 +103,14 @@ fn run_plugin(
         .stderr(Stdio::piped())
         .spawn()?;
 
-    // VERSION command doesn't read stdin, so we only write for other commands
-    // to avoid BrokenPipe errors when the plugin exits before reading
-    if cmd != Cmd::Version {
-        let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
-        stdin.write_all(net_conf.as_bytes())?;
+    // A plugin need not read stdin: VERSION never does, and an invalid environment
+    // exits first. Go's `os/exec` ignores EPIPE on its stdin copy, so a runtime never
+    // sees it either.
+    let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+    if let Err(e) = stdin.write_all(net_conf.as_bytes())
+        && e.kind() != io::ErrorKind::BrokenPipe
+    {
+        return Err(e.into());
     }
 
     let output = child.wait_with_output()?;
