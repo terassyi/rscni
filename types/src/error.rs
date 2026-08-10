@@ -139,23 +139,22 @@ impl Error {
         ))
     }
 
-    /// Outputs details
+    /// The wire `details`: the longer description accompanying the error code.
     #[must_use]
-    pub fn details(&self) -> String {
-        #[allow(clippy::match_same_arms)]
+    pub fn details(&self) -> &str {
         match self {
-            Self::IncompatibleVersion(details) => details.clone(),
-            Self::UnsupportedNetworkConfiguration(details) => details.clone(),
-            Self::NotExist(details) => details.clone(),
-            Self::InvalidEnvValue(details) => details.clone(),
-            Self::IOFailure(details) => details.clone(),
-            Self::FailedToDecode(details) => details.clone(),
-            Self::InvalidNetworkConfig(details) => details.clone(),
-            Self::InvalidNetNS(details) => details.clone(),
-            Self::TryAgainLater(details) => details.clone(),
-            Self::PluginNotAvailable(details) => details.clone(),
-            Self::PluginNotAvailableLimitedConnectivity(details) => details.clone(),
-            Self::Custom(_, _, details) => details.clone(),
+            Self::IncompatibleVersion(details)
+            | Self::UnsupportedNetworkConfiguration(details)
+            | Self::NotExist(details)
+            | Self::InvalidEnvValue(details)
+            | Self::IOFailure(details)
+            | Self::FailedToDecode(details)
+            | Self::InvalidNetworkConfig(details)
+            | Self::InvalidNetNS(details)
+            | Self::TryAgainLater(details)
+            | Self::PluginNotAvailable(details)
+            | Self::PluginNotAvailableLimitedConnectivity(details)
+            | Self::Custom(_, _, details) => details,
         }
     }
 }
@@ -251,7 +250,7 @@ mod tests {
             msg: "Test message".to_string(),
             details: details.to_string(),
         };
-        let error = Error::from(&error_result);
+        let error = Error::from(error_result);
         assert_eq!(error.details(), expected.details());
         assert_eq!(u32::from(&error), u32::from(&expected));
     }
@@ -274,7 +273,7 @@ mod tests {
             msg: msg.to_string(),
             details: details.to_string(),
         };
-        let error = Error::from(&error_result);
+        let error = Error::from(error_result);
         if let Error::Custom(result_code, result_msg, result_details) = error {
             assert_eq!(result_code, code);
             assert_eq!(result_msg, msg);
@@ -289,7 +288,7 @@ mod tests {
         // The reference implementation emits no cniVersion and omits empty details.
         let error_result: ErrorResult =
             serde_json::from_str(r#"{"code":4,"msg":"required env variables missing"}"#)?;
-        let error = Error::from(&error_result);
+        let error = Error::from(error_result);
         assert_eq!(u32::from(&error), 4);
         Ok(())
     }
@@ -320,7 +319,7 @@ mod tests {
         // Reading its own wire form back yields an error with the same code and
         // details, and re-emitting that error reproduces the same wire msg — the
         // representation is stable across round trips.
-        let read_back = Error::from(&result);
+        let read_back = Error::from(result);
         assert_eq!(u32::from(&read_back), code);
         assert_eq!(read_back.details(), error.details());
         assert_eq!(ErrorResult::new("1.1.0", &read_back).msg, wire_msg);
