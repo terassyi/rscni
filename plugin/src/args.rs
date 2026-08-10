@@ -13,7 +13,10 @@ use std::{env, io::Read, path::PathBuf};
 
 use rscni_types::{
     error::Error,
-    types::{CNI_ARGS, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd, NetConf},
+    types::{
+        CNI_ARGS, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd, ContainerId,
+        InterfaceName, NetConf,
+    },
 };
 
 use crate::util::{Env, Io};
@@ -27,14 +30,12 @@ use crate::util::{Env, Io};
 #[derive(Debug, Default, Clone)]
 pub struct Args {
     /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
-    /// Must not be empty.
-    /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore (), dot (.) or hyphen (-).
-    container_id: Option<String>,
+    container_id: Option<ContainerId>,
     /// A reference to the container's "isolation domain".
     /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
     netns: Option<PathBuf>,
     /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    ifname: Option<String>,
+    ifname: Option<InterfaceName>,
     /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
     #[allow(clippy::struct_field_names)]
     args: Option<String>,
@@ -47,8 +48,8 @@ pub struct Args {
 impl Args {
     /// Returns the container ID if present.
     #[must_use]
-    pub fn container_id(&self) -> Option<&str> {
-        self.container_id.as_deref()
+    pub const fn container_id(&self) -> Option<&ContainerId> {
+        self.container_id.as_ref()
     }
 
     /// Returns the network namespace path if present.
@@ -59,8 +60,8 @@ impl Args {
 
     /// Returns the interface name if present.
     #[must_use]
-    pub fn ifname(&self) -> Option<&str> {
-        self.ifname.as_deref()
+    pub const fn ifname(&self) -> Option<&InterfaceName> {
+        self.ifname.as_ref()
     }
 
     /// Returns the extra arguments if present.
@@ -107,9 +108,9 @@ impl<'a> TryFrom<&'a Args> for &'a NetConf {
 /// Builder for constructing `Args` instances.
 #[derive(Debug)]
 pub struct ArgsBuilder<E: Env, I: Io> {
-    container_id: Option<String>,
+    container_id: Option<ContainerId>,
     netns: Option<PathBuf>,
-    ifname: Option<String>,
+    ifname: Option<InterfaceName>,
     #[allow(clippy::struct_field_names)]
     args: Option<String>,
     path: Vec<PathBuf>,
@@ -141,9 +142,14 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
+    /// Returns an error if the environment variable cannot be read, or holds a value
+    /// [`ContainerId`] rejects.
+    // Converted here rather than by `E::get::<ContainerId>`: that renders the failure
+    // through `Error`'s `Display`, which is the wire msg, losing the details.
     pub fn container_id(mut self) -> Result<Self, Error> {
-        self.container_id = E::get::<String>(CNI_CONTAINERID)?;
+        self.container_id = E::get::<String>(CNI_CONTAINERID)?
+            .map(ContainerId::try_from)
+            .transpose()?;
         Ok(self)
     }
 
@@ -162,9 +168,12 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
+    /// Returns an error if the environment variable cannot be read, or holds a value
+    /// [`InterfaceName`] rejects.
     pub fn ifname(mut self) -> Result<Self, Error> {
-        self.ifname = E::get::<String>(CNI_IFNAME)?;
+        self.ifname = E::get::<String>(CNI_IFNAME)?
+            .map(InterfaceName::try_from)
+            .transpose()?;
         Ok(self)
     }
 
@@ -225,26 +234,21 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     /// `CNI_ARGS` is optional everywhere, and `CNI_PATH` everywhere but GC — the
     /// reference implementation requires it more widely, but the spec's tables win.
     ///
-    /// Present values are checked against the spec's character rules: a malformed one
-    /// fails immediately, then the missing ones are reported together.
-    ///
     /// # Errors
     ///
-    /// Returns an error if a required field is missing or malformed for the command.
+    /// Returns an error naming every variable the command requires and lacks.
     pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
         let mut missing = Vec::new();
         match cmd {
             Cmd::Add | Cmd::Check | Cmd::Del => {
-                match self.container_id.as_deref() {
-                    None => missing.push(CNI_CONTAINERID),
-                    Some(id) => Self::validate_container_id(id)?,
+                if self.container_id.is_none() {
+                    missing.push(CNI_CONTAINERID);
                 }
                 if self.netns.is_none() && !matches!(cmd, Cmd::Del) {
                     missing.push(CNI_NETNS);
                 }
-                match self.ifname.as_deref() {
-                    None => missing.push(CNI_IFNAME),
-                    Some(name) => Self::validate_interface_name(name)?,
+                if self.ifname.is_none() {
+                    missing.push(CNI_IFNAME);
                 }
             }
             // GC command requires CNI_PATH
@@ -257,42 +261,6 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         } else {
             Err(Error::missing_env(&missing))
         }
-    }
-
-    /// Checks a container ID against the spec's character rule, the one network names
-    /// follow too.
-    fn validate_container_id(id: &str) -> Result<(), Error> {
-        if NetConf::valid_name(id) {
-            Ok(())
-        } else {
-            Err(Error::InvalidEnvValue(format!(
-                "invalid characters in containerID: {id}"
-            )))
-        }
-    }
-
-    /// Checks an interface name against the kernel's naming rules: at most 15
-    /// characters, not `.` or `..`, and free of `/`, `:` and whitespace.
-    fn validate_interface_name(name: &str) -> Result<(), Error> {
-        if name.len() > 15 {
-            return Err(Error::InvalidEnvValue(format!(
-                "interface name is too long: interface name should be less than 16 characters: {name}"
-            )));
-        }
-        if name == "." || name == ".." {
-            return Err(Error::InvalidEnvValue(
-                "interface name is . or ..".to_string(),
-            ));
-        }
-        if name
-            .chars()
-            .any(|c| c == '/' || c == ':' || c.is_whitespace())
-        {
-            return Err(Error::InvalidEnvValue(format!(
-                "interface name contains / or : or whitespace characters: {name}"
-            )));
-        }
-        Ok(())
     }
 
     /// Builds the `Args` instance.
