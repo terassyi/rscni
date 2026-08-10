@@ -1,5 +1,5 @@
 //! Plugin-side plumbing: env/IO abstractions (the test seam for the mock env and mock
-//! stdio in the `cni`/`async_cni` tests) and output formatting.
+//! stdio in the `cni`/`async_cni` tests) and the ADD result's wire rendering.
 //!
 //! Everything here is `pub` *in a private module*, which is not reachable from outside
 //! the crate (`use rscni_plugin::util::…` is E0603). The plain `pub` is load-bearing
@@ -14,20 +14,20 @@ use rscni_types::{
     error::Error,
     legacy,
     types::{CNIResult, CNIResultWithVersion},
-    version::{PluginInfo, SpecVersion},
+    version::SpecVersion,
 };
-
-/// Renders the JSON a plugin writes in response to `CNI_COMMAND=VERSION`.
-///
-/// Lives here rather than on [`PluginInfo`] because it is plugin-side output
-/// formatting: a runtime deserializes this JSON, it never produces it, so the shared
-/// types crate has no business promising the exact string.
-pub fn version_json(info: &PluginInfo) -> Result<String, Error> {
-    serde_json::to_string(info).map_err(|e| Error::FailedToDecode(e.to_string()))
-}
 
 /// Renders the JSON a plugin writes for a successful ADD: the result in the layout
 /// the negotiated version requires, declared under that version.
+///
+/// A free function for want of a receiver: it belongs to neither the version nor the
+/// result, and the layout choice is deliberately the plugin's. `version` must be
+/// [`is_supported`](SpecVersion::is_supported), which dispatch checks before it lets
+/// the ADD callback run.
+///
+/// # Errors
+///
+/// Returns [`Error::FailedToDecode`] if the result cannot be serialized.
 pub fn result_json(version: SpecVersion, result: CNIResult) -> Result<String, Error> {
     if version.is_legacy() {
         serde_json::to_string(&legacy::CNIResult::new(version, result))
@@ -35,18 +35,6 @@ pub fn result_json(version: SpecVersion, result: CNIResult) -> Result<String, Er
         serde_json::to_string(&CNIResultWithVersion::new(version, result))
     }
     .map_err(|e| Error::FailedToDecode(e.to_string()))
-}
-
-/// Renders the human-readable text a plugin prints when `CNI_COMMAND` is unset.
-///
-/// Plugin-side formatting, kept out of `rscni-types` for the same reason as
-/// [`version_json`].
-pub fn about_text(info: &PluginInfo, msg: Option<String>) -> String {
-    let versions = info.supported_versions().join(", ");
-    msg.map_or_else(
-        || format!("CNI protocol versions supported: {versions}"),
-        |msg| format!("{msg}\nCNI protocol versions supported: {versions}"),
-    )
 }
 
 pub trait Env {

@@ -40,12 +40,8 @@ pub const CNI_PATH: &str = "CNI_PATH";
 /// operation, so [`FromStr`] rejects `""` and callers decide what absence means (a plugin
 /// prints its about text; a runtime always sets the variable).
 ///
-/// Marked `#[non_exhaustive]` because the CNI specification has grown new operations
-/// before (GC and STATUS arrived in v1.1.0) and adding one must not be a breaking change.
-///
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Cmd {
     Add,
     Del,
@@ -105,6 +101,25 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
+/// Deserializes what libcni's conflist parser accepts for a boolean key: JSON
+/// `true`/`false`, or those words as a string in any case.
+fn bool_or_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Bool(bool),
+        Str(String),
+    }
+    match Raw::deserialize(deserializer)? {
+        Raw::Bool(b) => Ok(b),
+        Raw::Str(s) if s.eq_ignore_ascii_case("true") => Ok(true),
+        Raw::Str(s) if s.eq_ignore_ascii_case("false") => Ok(false),
+        Raw::Str(s) => Err(serde::de::Error::custom(format!(
+            "invalid value {s:?} for a boolean key"
+        ))),
+    }
+}
+
 /// Resolves a declared `cniVersion` value: empty — the in-memory form of an absent
 /// key, a JSON `null`, and the empty string alike — means 0.1.0, the only version to
 /// predate the key (added in 0.2.0).
@@ -125,13 +140,23 @@ pub struct NetConf {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.
     /// May be undeclared — the key predates spec 0.2.0; this type's `version()`
     /// resolves what that means.
-    #[serde(default, deserialize_with = "null_as_default")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub cni_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cni_versions: Option<Vec<String>>,
     /// Network name.
     /// This should be unique across all network configurations on a host (or other administrative domain).
     /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore, dot (.) or hyphen (-).
+    ///
+    /// Defaulted, not required: a plugin object inside a `.conflist` has no `name`
+    /// (the runtime injects the list's). The stdin document's name is checked by
+    /// [`validate_name`](Self::validate_name) instead, which is error code 7 rather
+    /// than a decode failure.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub name: String,
     /// Matches the name of the CNI plugin binary on disk. Must not contain characters disallowed in file paths for the system (e.g. / or \).
     pub r#type: String,
@@ -186,6 +211,36 @@ impl NetConf {
     pub fn version(&self) -> Result<SpecVersion, Error> {
         declared_version(&self.cni_version)
     }
+
+    /// The character rule the specification states for network names and, identically,
+    /// for container IDs: an ASCII alphanumeric, then alphanumerics, `_`, `.` and `-`.
+    #[must_use]
+    pub fn valid_name(value: &str) -> bool {
+        let mut chars = value.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    }
+
+    /// Checks that the network name is present and satisfies
+    /// [`valid_name`](Self::valid_name), as both sides of the protocol do.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidNetworkConfig`] (error code 7).
+    pub fn validate_name(&self) -> Result<(), Error> {
+        if self.name.is_empty() {
+            return Err(Error::InvalidNetworkConfig(
+                "missing network name".to_string(),
+            ));
+        }
+        if !Self::valid_name(&self.name) {
+            return Err(Error::InvalidNetworkConfig(format!(
+                "invalid characters found in network name: {}",
+                self.name
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// `NetConfList` is a network configuration format for administrators.
@@ -210,17 +265,18 @@ pub struct NetConfList {
     /// If disableCheck is true, runtimes must not call CHECK for this network configuration list.
     /// This allows an administrator to prevent `CHECKing` where a combination of plugins is known to return spurious errors.
     ///
-    #[serde(default)] // default is false
+    #[serde(default, deserialize_with = "bool_or_string")] // default is false
     pub disable_check: bool,
     /// Either true or false.
     /// If disableGC is true, runtimes must not call GC for this network configuration list.
     /// (CNI spec 1.1.0; added in the spec revision shipped with CNI v1.2.1)
-    #[serde(default)] // default is false
+    // Explicit rename: `rename_all = "camelCase"` would produce `disableGc`.
+    #[serde(default, deserialize_with = "bool_or_string", rename = "disableGC")]
     pub disable_gc: bool,
     /// Either true or false.
     /// If loadOnlyInlinedPlugins is true, runtimes must not load any plugins from the filesystem.
     /// (CNI spec 1.1.0; added in the spec revision shipped with CNI v1.3.0)
-    #[serde(default)] // default is false
+    #[serde(default, deserialize_with = "bool_or_string")] // default is false
     pub load_only_inlined_plugins: bool,
     /// A list of CNI plugins and their configuration, which is a list of plugin configuration objects.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -228,19 +284,35 @@ pub struct NetConfList {
 }
 
 impl NetConfList {
-    /// Returns the CNI specification version this configuration list declares, parsed;
-    /// undeclared resolves like [`NetConf::version`].
+    /// Returns the effective version, resolved like libcni: the highest of
+    /// `cniVersions` and `cniVersion` that does not exceed [`SpecVersion::CURRENT`],
+    /// falling back to `cniVersion` alone.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::FailedToDecode`] if the declared version is malformed.
+    /// Returns [`Error::FailedToDecode`] if any declared version is malformed.
     pub fn version(&self) -> Result<SpecVersion, Error> {
-        declared_version(&self.cni_version)
+        let declared = declared_version(&self.cni_version)?;
+        let mut best = None;
+        for candidate in self
+            .cni_versions
+            .iter()
+            .map(|raw| raw.parse())
+            .chain([Ok(declared)])
+        {
+            let candidate = candidate?;
+            if candidate <= SpecVersion::CURRENT {
+                best = best.max(Some(candidate));
+            }
+        }
+        Ok(best.unwrap_or(declared))
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GcAttachment {
+    // Explicit rename: camelCase would give `containerId`, not the spec's `containerID`.
+    #[serde(rename = "containerID")]
     pub container_id: String,
     pub ifname: String,
 }
@@ -269,7 +341,7 @@ pub struct Ipam {
 }
 
 /// DNS configuration information.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Dns {
     /// List of a priority-ordered list of DNS nameservers that this network is aware of. Each entry in the list is a string containing either an IPv4 or an IPv6 address.
@@ -340,8 +412,21 @@ pub struct CNIResult {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub routes: Vec<Route>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Skipped when empty of content, not just when `None`: the reference
+    // implementation drops an all-empty `dns` from the current-layout result.
+    #[serde(default, skip_serializing_if = "dns_is_empty")]
     pub dns: Option<Dns>,
+}
+
+// `&Option<Dns>` is the signature `skip_serializing_if` calls with, not a style choice.
+#[allow(clippy::ref_option)]
+fn dns_is_empty(dns: &Option<Dns>) -> bool {
+    dns.as_ref().is_none_or(|dns| {
+        dns.nameservers.is_empty()
+            && dns.domain.as_ref().is_none_or(String::is_empty)
+            && dns.search.as_ref().is_none_or(Vec::is_empty)
+            && dns.options.as_ref().is_none_or(Vec::is_empty)
+    })
 }
 
 /// The wire form of a successful ADD result: a [`CNIResult`] plus the `cniVersion` key
@@ -393,7 +478,13 @@ impl CNIResultWithVersion {
 pub struct Interface {
     /// The name of the interface.
     pub name: String,
-    /// The hardware address of the interface.
+    /// The hardware address of the interface, empty when not applicable. The key is
+    /// optional on the wire: omitted when empty, accepted when missing or `null`.
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub mac: String,
     /// The MTU of the interface (if applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,11 +525,29 @@ pub struct PortMapping {
     pub protocol: Option<Protocol>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+/// A port-mapping transport protocol. Serializes lowercase, deserializes any casing,
+/// like the reference `portmap` plugin.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum Protocol {
     Tcp,
     Udp,
+    Sctp,
+}
+
+impl<'de> Deserialize<'de> for Protocol {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        if raw.eq_ignore_ascii_case("tcp") {
+            Ok(Self::Tcp)
+        } else if raw.eq_ignore_ascii_case("udp") {
+            Ok(Self::Udp)
+        } else if raw.eq_ignore_ascii_case("sctp") {
+            Ok(Self::Sctp)
+        } else {
+            Err(serde::de::Error::custom(format!("unknown protocol: {raw}")))
+        }
+    }
 }
 
 /// The wire form of the CNI error result type.
@@ -450,12 +559,19 @@ pub enum Protocol {
 #[serde(rename_all = "camelCase")]
 pub struct ErrorResult {
     /// The same value as provided by the configuration.
+    ///
+    /// Defaulted on deserialization: the spec requires this key and this type emits
+    /// it, but the reference implementation's error output has none.
+    #[serde(default)]
     pub(crate) cni_version: String,
     /// A numeric error code.
     pub(crate) code: u32,
     /// A short message characterizing the error.
     pub(crate) msg: String,
     /// A longer message describing the error.
+    ///
+    /// Defaulted on deserialization: the reference implementation omits it when empty.
+    #[serde(default)]
     pub(crate) details: String,
 }
 
@@ -480,10 +596,6 @@ impl ErrorResult {
 
 impl From<&ErrorResult> for Error {
     fn from(res: &ErrorResult) -> Self {
-        // The spec reserves 0-99; every code from 100 up is plugin-defined.
-        if res.code >= 100 {
-            return Self::Custom(res.code, res.msg.clone(), res.details.clone());
-        }
         match res.code {
             1 => Self::IncompatibleVersion(res.details.clone()),
             2 => Self::UnsupportedNetworkConfiguration(res.details.clone()),
@@ -492,10 +604,14 @@ impl From<&ErrorResult> for Error {
             5 => Self::IOFailure(res.details.clone()),
             6 => Self::FailedToDecode(res.details.clone()),
             7 => Self::InvalidNetworkConfig(res.details.clone()),
+            8 => Self::InvalidNetNS(res.details.clone()),
             11 => Self::TryAgainLater(res.details.clone()),
             50 => Self::PluginNotAvailable(res.details.clone()),
             51 => Self::PluginNotAvailableLimitedConnectivity(res.details.clone()),
-            _ => Self::FailedToDecode(format!("unknown error code: {}", res.code)),
+            // Plugin-defined codes and reserved ones without a variant alike: kept
+            // verbatim, since rewriting them would misreport what the plugin said.
+            // Only minting new errors is restricted to the >= 100 band.
+            code => Self::Custom(code, res.msg.clone(), res.details.clone()),
         }
     }
 }
@@ -560,7 +676,7 @@ mod tests {
             ifname: "eth0".to_string(),
         };
         let json = serde_json::to_string(&attachment)?;
-        let expected = r#"{"container_id":"container-123","ifname":"eth0"}"#;
+        let expected = r#"{"containerID":"container-123","ifname":"eth0"}"#;
         assert_eq!(json, expected);
 
         let deserialized: GcAttachment = serde_json::from_str(&json)?;
@@ -619,8 +735,8 @@ mod tests {
             "name": "test-network",
             "type": "bridge",
             "cni.dev/valid-attachments": [
-                {"container_id": "container-1", "ifname": "eth0"},
-                {"container_id": "container-2", "ifname": "eth1"}
+                {"containerID": "container-1", "ifname": "eth0"},
+                {"containerID": "container-2", "ifname": "eth1"}
             ]
         }"#;
 
@@ -660,7 +776,7 @@ mod tests {
         let serialized = serde_json::to_value(&conf_with_attachments)?;
         assert!(serialized["cni.dev/valid-attachments"].is_array());
         assert_eq!(
-            serialized["cni.dev/valid-attachments"][0]["container_id"],
+            serialized["cni.dev/valid-attachments"][0]["containerID"],
             "container-1"
         );
         Ok(())

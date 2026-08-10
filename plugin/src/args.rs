@@ -9,32 +9,14 @@
 //! to being invoked as a plugin. A CNI runtime writes these parameters out
 //! instead of reading them, so it has no use for them.
 
-use std::{env, io::Read, path::PathBuf, str::FromStr};
+use std::{env, io::Read, path::PathBuf};
 
 use rscni_types::{
     error::Error,
-    types::{
-        CNI_ARGS, CNI_COMMAND, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd, NetConf,
-    },
+    types::{CNI_ARGS, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd, NetConf},
 };
 
 use crate::util::{Env, Io};
-
-/// Reads the `CNI_COMMAND` environment variable.
-///
-/// `Ok(None)` means the variable is unset or empty; the dispatcher decides what absence
-/// means (help text on stderr plus error code 4).
-///
-/// This is a free function rather than an inherent method on [`Cmd`] because `Cmd`
-/// lives in `rscni-types`, which knows nothing about [`Env`].
-// `pub(crate)` is what this is: `args` is a private module and nothing re-exports this,
-// unlike `Args`/`ArgsBuilder`. clippy's `redundant_pub_crate` would rather see `pub`
-// because the two reach equally far today, but `pub` would silently widen the crate's
-// API the day `mod args` becomes public, so the narrower marker is kept deliberately.
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) fn cmd_from_env<E: Env>() -> Result<Option<Cmd>, Error> {
-    E::get::<String>(CNI_COMMAND)?.map_or(Ok(None), |raw| Cmd::from_str(&raw).map(Some))
-}
 
 /// Args is input data for the CNI call.
 ///
@@ -102,7 +84,8 @@ impl Args {
 
 /// Every dispatchable operation requires the network configuration on stdin, so
 /// dispatch converts `Args` into the [`NetConf`] it must contain, failing with
-/// [`Error::InvalidNetworkConfig`] (error code 7) when it is absent.
+/// [`Error::InvalidNetworkConfig`] (error code 7) when it is absent, or carries no
+/// usable network name.
 ///
 /// The absence must be a hard error rather than a skipped check: a stdin of literal
 /// JSON `null` deserializes into *no configuration* without a decode error, and
@@ -113,9 +96,11 @@ impl<'a> TryFrom<&'a Args> for &'a NetConf {
     type Error = Error;
 
     fn try_from(args: &'a Args) -> Result<Self, Self::Error> {
-        args.config().ok_or_else(|| {
+        let conf = args.config().ok_or_else(|| {
             Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
-        })
+        })?;
+        conf.validate_name()?;
+        Ok(conf)
     }
 }
 
@@ -226,8 +211,8 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         Ok(self)
     }
 
-    /// Validates required fields based on the CNI command, following the spec's
-    /// required/optional environment parameter matrix:
+    /// Validates the environment-sourced fields based on the CNI command, following
+    /// the spec's required/optional environment parameter matrix:
     ///
     /// | command | required |
     /// |---|---|
@@ -237,43 +222,77 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     /// | GC | `CNI_PATH` |
     /// | STATUS, VERSION | nothing |
     ///
-    /// `CNI_ARGS` is optional everywhere, and `CNI_PATH` everywhere but GC.
+    /// `CNI_ARGS` is optional everywhere, and `CNI_PATH` everywhere but GC — the
+    /// reference implementation requires it more widely, but the spec's tables win.
+    ///
+    /// Present values are checked against the spec's character rules: a malformed one
+    /// fails immediately, then the missing ones are reported together.
     ///
     /// # Errors
     ///
-    /// Returns an error if a required field is missing for the given command.
+    /// Returns an error if a required field is missing or malformed for the command.
     pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
+        let mut missing = Vec::new();
         match cmd {
             Cmd::Add | Cmd::Check | Cmd::Del => {
-                if self.container_id.is_none() {
-                    return Err(Error::InvalidEnvValue(
-                        "CNI_CONTAINERID is required for ADD/DEL/CHECK commands".to_string(),
-                    ));
-                }
-                if self.ifname.is_none() {
-                    return Err(Error::InvalidEnvValue(
-                        "CNI_IFNAME is required for ADD/DEL/CHECK commands".to_string(),
-                    ));
+                match self.container_id.as_deref() {
+                    None => missing.push(CNI_CONTAINERID),
+                    Some(id) => Self::validate_container_id(id)?,
                 }
                 if self.netns.is_none() && !matches!(cmd, Cmd::Del) {
-                    return Err(Error::InvalidEnvValue(
-                        "CNI_NETNS is required for ADD/CHECK commands".to_string(),
-                    ));
+                    missing.push(CNI_NETNS);
+                }
+                match self.ifname.as_deref() {
+                    None => missing.push(CNI_IFNAME),
+                    Some(name) => Self::validate_interface_name(name)?,
                 }
             }
             // GC command requires CNI_PATH
-            Cmd::Gc if self.path.is_empty() => {
-                return Err(Error::InvalidEnvValue(
-                    "CNI_PATH is required for GC command".to_string(),
-                ));
-            }
-            // STATUS and VERSION don't require container-specific parameters. The
-            // wildcard also covers any operation a future CNI specification adds
-            // (`Cmd` is `#[non_exhaustive]`): a command this crate does not know cannot
-            // have extra requirements enforced here.
+            Cmd::Gc if self.path.is_empty() => missing.push(CNI_PATH),
+            // STATUS and VERSION require no container-specific parameters.
             _ => {}
         }
-        Ok(self)
+        if missing.is_empty() {
+            Ok(self)
+        } else {
+            Err(Error::missing_env(&missing))
+        }
+    }
+
+    /// Checks a container ID against the spec's character rule, the one network names
+    /// follow too.
+    fn validate_container_id(id: &str) -> Result<(), Error> {
+        if NetConf::valid_name(id) {
+            Ok(())
+        } else {
+            Err(Error::InvalidEnvValue(format!(
+                "invalid characters in containerID: {id}"
+            )))
+        }
+    }
+
+    /// Checks an interface name against the kernel's naming rules: at most 15
+    /// characters, not `.` or `..`, and free of `/`, `:` and whitespace.
+    fn validate_interface_name(name: &str) -> Result<(), Error> {
+        if name.len() > 15 {
+            return Err(Error::InvalidEnvValue(format!(
+                "interface name is too long: interface name should be less than 16 characters: {name}"
+            )));
+        }
+        if name == "." || name == ".." {
+            return Err(Error::InvalidEnvValue(
+                "interface name is . or ..".to_string(),
+            ));
+        }
+        if name
+            .chars()
+            .any(|c| c == '/' || c == ':' || c.is_whitespace())
+        {
+            return Err(Error::InvalidEnvValue(format!(
+                "interface name contains / or : or whitespace characters: {name}"
+            )));
+        }
+        Ok(())
     }
 
     /// Builds the `Args` instance.

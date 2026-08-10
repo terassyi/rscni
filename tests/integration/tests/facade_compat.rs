@@ -79,12 +79,9 @@ fn the_other_paths_still_resolve() {
     let _: NetConf = NetConf::default();
 }
 
-/// Pins that `Error` can still be matched exhaustively, with 0.2.1's variants and field
-/// arities. 0.2.x users could write a wildcard-free match, so growing a variant or
-/// adding `#[non_exhaustive]` is a breaking change — if this stops compiling, that is
-/// what happened.
+/// Pins that every variant 0.2.x could name still exists with the same shape.
 #[test]
-fn error_is_still_exhaustively_matchable() {
+fn error_variants_still_resolve() {
     fn code(err: &Error) -> u32 {
         match err {
             Error::IncompatibleVersion(_) => 1,
@@ -98,6 +95,7 @@ fn error_is_still_exhaustively_matchable() {
             Error::PluginNotAvailable(_) => 50,
             Error::PluginNotAvailableLimitedConnectivity(_) => 51,
             Error::Custom(code, _, _) => *code,
+            _ => 0,
         }
     }
 

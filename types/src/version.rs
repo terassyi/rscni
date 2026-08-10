@@ -36,7 +36,10 @@ impl Default for PluginInfo {
             // versions the crate can speak, which only ever grows. When `CURRENT` is
             // bumped, the new version is appended here — the old entries must survive,
             // or configs declaring them would silently start being rejected.
+            // 0.1.0 and 0.2.0 are deliberately absent: their ADD result uses the
+            // `ip4`/`ip6` layout this crate does not produce.
             supported_versions: vec![
+                "0.3.0".to_string(),
                 "0.3.1".to_string(),
                 "0.4.0".to_string(),
                 "1.0.0".to_string(),
@@ -171,6 +174,13 @@ impl SpecVersion {
     #[must_use]
     pub fn is_legacy(self) -> bool {
         Self(0, 3, 0) <= self && self < Self(1, 0, 0)
+    }
+
+    /// Whether this crate can produce an ADD result for this version: versions
+    /// before 0.3.0 use the `ip4`/`ip6` layout it does not implement.
+    #[must_use]
+    pub fn is_supported(self) -> bool {
+        Self(0, 3, 0) <= self
     }
 }
 

@@ -2,13 +2,13 @@ use std::io::Write;
 
 use rscni_types::{
     error::Error,
-    types::{CNIResult, Cmd, ErrorResult},
+    types::{CNI_COMMAND, CNIResult, Cmd, ErrorResult},
     version::PluginInfo,
 };
 
 use crate::{
-    args::{Args, ArgsBuilder, cmd_from_env},
-    util::{Env, Io, OsEnv, StdIo, about_text, result_json, version_json},
+    args::{Args, ArgsBuilder},
+    util::{Env, Io, OsEnv, StdIo, result_json},
 };
 
 /// The core trait for implementing a CNI plugin.
@@ -313,22 +313,52 @@ impl Plugin {
         self.run_with::<T, OsEnv, StdIo>(cni)
     }
 
+    /// Renders the JSON this plugin answers `CNI_COMMAND=VERSION` with.
+    ///
+    /// Here rather than on [`PluginInfo`]: a runtime only ever reads this document,
+    /// so the shared types crate should not promise the exact string.
+    fn version_json(&self) -> Result<String, Error> {
+        serde_json::to_string(&self.info).map_err(|e| Error::FailedToDecode(e.to_string()))
+    }
+
+    /// Prints the about text on stderr, which is what a bare invocation asks for.
+    /// Without one there is no help to give, so the missing `CNI_COMMAND` is the
+    /// error instead.
+    fn print_about<I: Io>(&self) -> Result<(), Error> {
+        let msg = self
+            .msg
+            .as_deref()
+            .ok_or_else(|| Error::missing_env(&[CNI_COMMAND]))?;
+        let help = format!(
+            "{msg}\nCNI protocol versions supported: {}\n",
+            self.info.supported_versions().join(", ")
+        );
+        let _ = I::io_err().write_all(help.as_bytes());
+        Ok(())
+    }
+
     /// [`run`](Self::run) with its environment and I/O seams exposed, so tests can
     /// assert what actually lands on stdout — the success result and the error
     /// result structure both exist only on this side of `inner_run`.
     fn run_with<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<(), Error> {
+        // Flushed explicitly: the real stdout is buffered and its exit-time flush
+        // discards errors, so a broken stream would otherwise lose the JSON silently.
         match self.inner_run::<C, E, I>(cni) {
-            Ok(res) => I::io_out()
-                .write_all(res.as_bytes())
-                .map_err(|e| Error::IOFailure(e.to_string())),
+            Ok(res) => {
+                let mut out = I::io_out();
+                out.write_all(res.as_bytes())
+                    .and_then(|()| out.flush())
+                    .map_err(|e| Error::IOFailure(e.to_string()))
+            }
             Err(err) => {
-                // The spec requires a failing plugin to put the error result structure
-                // on stdout alongside the non-zero exit; that JSON is what runtimes
-                // (libcni included) parse for diagnostics. Emission is best-effort — the
-                // original error is what the caller must see either way.
+                // The spec requires a failing plugin to put the error result on stdout
+                // alongside the non-zero exit; that JSON is what runtimes parse for
+                // diagnostics. Best-effort: the original error must reach the caller
+                // either way, and a failed emission leaves a trace on stderr.
                 let error_result = ErrorResult::new(self.info.cni_version(), &err);
-                if let Ok(json) = serde_json::to_string(&error_result) {
-                    let _ = I::io_out().write_all(json.as_bytes());
+                let mut out = I::io_out();
+                if serde_json::to_writer(&mut out, &error_result).is_err() || out.flush().is_err() {
+                    let _ = I::io_err().write_all(b"Error writing error JSON to stdout\n");
                 }
                 Err(err)
             }
@@ -336,14 +366,14 @@ impl Plugin {
     }
 
     fn inner_run<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<String, Error> {
-        // CNI_COMMAND is required for every operation, so unset (or empty, which the
-        // spec's reference implementation treats identically) is error code 4 on the
-        // wire. The about text still goes to stderr: a human poking at the binary gets
-        // help, and stderr is the diagnostics channel, so runtimes are unaffected.
-        let Some(cmd) = cmd_from_env::<E>()? else {
-            let _ = I::io_err().write_all(about_text(&self.info, self.msg.clone()).as_bytes());
-            return Err(Error::InvalidEnvValue("CNI_COMMAND is not set".to_string()));
+        // CNI_COMMAND is required for every operation, so unset (or empty, the same
+        // thing here) is error code 4 — unless an about text turns the bare
+        // invocation into a help request, which succeeds with no stdout output.
+        let Some(raw_cmd) = E::get::<String>(CNI_COMMAND)? else {
+            self.print_about::<I>()?;
+            return Ok(String::new());
         };
+        let cmd: Cmd = raw_cmd.parse()?;
 
         match cmd {
             Cmd::Add => {
@@ -353,13 +383,20 @@ impl Plugin {
                     .ifname()?
                     .args()?
                     .path()?
-                    .config()?
                     .validate(cmd)?
+                    .config()?
                     .build()?;
                 // The spec requires the ADD result to carry a `cniVersion` key echoing
                 // the version supplied on input — and for versions before 1.0.0, to
-                // use their legacy result layout.
+                // use their legacy result layout. Refused before the callback runs, so
+                // a version whose layout this crate cannot render fails without
+                // leaving the attachment behind.
                 let cni_version = self.info.negotiate((&args).try_into()?, cmd)?;
+                if !cni_version.is_supported() {
+                    return Err(Error::IncompatibleVersion(format!(
+                        "unsupported CNI result version \"{cni_version}\""
+                    )));
+                }
                 let res = cni.add(args)?;
                 result_json(cni_version, res)
             }
@@ -370,8 +407,8 @@ impl Plugin {
                     .ifname()?
                     .args()?
                     .path()?
-                    .config()?
                     .validate(cmd)?
+                    .config()?
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
                 // The spec defines no success output for DEL; the returned value is
@@ -386,8 +423,8 @@ impl Plugin {
                     .ifname()?
                     .args()?
                     .path()?
-                    .config()?
                     .validate(cmd)?
+                    .config()?
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
                 // The spec defines no success output for CHECK; the returned value is
@@ -399,8 +436,8 @@ impl Plugin {
                 // STATUS command only requires CNI_PATH (optional) and config from stdin
                 let args = ArgsBuilder::<E, I>::new()
                     .path()?
-                    .config()?
                     .validate(cmd)?
+                    .config()?
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
                 cni.status(args)?;
@@ -411,21 +448,15 @@ impl Plugin {
                 // GC command requires CNI_COMMAND and CNI_PATH, plus config from stdin
                 let args = ArgsBuilder::<E, I>::new()
                     .path()?
-                    .config()?
                     .validate(cmd)?
+                    .config()?
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
                 cni.gc(args)?;
                 // GC returns no output on success
                 Ok(String::new())
             }
-            Cmd::Version => version_json(&self.info),
-            // `Cmd` is `#[non_exhaustive]`: an operation added by a future CNI
-            // specification is not one this version of the library can dispatch.
-            cmd => Err(Error::InvalidEnvValue(format!(
-                "unsupported CNI_COMMAND: {}",
-                <&str>::from(cmd)
-            ))),
+            Cmd::Version => self.version_json(),
         }
     }
 }
@@ -658,14 +689,25 @@ mod tests {
         Ok(())
     }
 
+    // A missing CNI_COMMAND is a help request when an about text exists — help on
+    // stderr, success with no output — and error code 4 otherwise.
     #[test]
-    fn test_plugin_inner_run_unset() {
-        // A missing CNI_COMMAND is error code 4 (an empty one is the same thing, but
-        // that equivalence is `Env`'s contract, collapsed before dispatch sees it).
+    fn test_plugin_inner_run_unset_prints_help() -> Result<(), Error> {
         set_dispatch_env("", "", "", "");
         let plugin = Plugin::default().msg("Test Plugin v1.0.0");
-        let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-        assert!(matches!(result, Err(Error::InvalidEnvValue(_))));
+        let out = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni)?;
+        assert!(out.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_plugin_inner_run_unset_without_about_text_is_code_4() {
+        set_dispatch_env("", "", "", "");
+        let result = Plugin::default().inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
+        assert!(
+            matches!(result, Err(Error::InvalidEnvValue(_))),
+            "got: {result:?}"
+        );
     }
 
     /// Arranges every mock seam from scratch — the single test entry point, so
@@ -718,6 +760,23 @@ mod tests {
     #[case::del_without_ifname("DEL", "c1", "", "", "CNI_IFNAME")]
     #[case::check_without_container_id("CHECK", "", "/ns", "eth0", "CNI_CONTAINERID")]
     #[case::gc_without_path("GC", "", "", "", "CNI_PATH")]
+    // Missing variables are reported together, in the reference's wording and order.
+    #[case::add_bare("ADD", "", "", "", "[CNI_CONTAINERID,CNI_NETNS,CNI_IFNAME]")]
+    // Present values are held to the spec's character rules.
+    #[case::invalid_container_id(
+        "ADD",
+        "bad*id",
+        "/ns",
+        "eth0",
+        "invalid characters in containerID"
+    )]
+    #[case::invalid_ifname(
+        "ADD",
+        "c1",
+        "/ns",
+        "eth0:0",
+        "interface name contains / or : or whitespace"
+    )]
     fn test_plugin_inner_run_env_matrix_rejected(
         #[case] command: &str,
         #[case] container_id: &str,
@@ -782,16 +841,17 @@ mod tests {
         Ok(())
     }
 
-    // Broken stdin, by error class: a literal `null` deserializes to no configuration
-    // without a decode error and must be rejected as such (code 7, not "nothing to
-    // validate"); a version that cannot parse is a decode failure (code 6) — parsed
-    // once at the config boundary every operation shares.
+    // Broken stdin, by error class: a literal `null` decodes to no configuration
+    // without failing, so it is a config error (7), as is a bad network name; a
+    // version that cannot parse is a decode failure (6).
     #[rstest]
     #[case::null_config("null", 7)]
     #[case::malformed_version(
         r#"{"cniVersion":"not-a-version","name":"test-network","type":"test"}"#,
         6
     )]
+    #[case::missing_network_name(r#"{"cniVersion":"1.1.0","type":"test"}"#, 7)]
+    #[case::invalid_network_name(r#"{"cniVersion":"1.1.0","name":"bad*name","type":"test"}"#, 7)]
     fn test_plugin_inner_run_broken_stdin_rejected(#[case] stdin: &str, #[case] code: u32) {
         set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
         set_mock_input(stdin);
@@ -845,32 +905,27 @@ mod tests {
     }
 
     // `cniVersion` was only added to the config format in spec 0.2.0: its absence
-    // means 0.1.0 — rejected with code 1 (not a decode failure) unless the plugin
-    // declares 0.1.0 support, in which case the ADD result echoes the implied 0.1.0.
+    // means 0.1.0, rejected with code 1 — even by a plugin listing 0.1.0 as
+    // supported, since this crate cannot produce that version's result layout.
     #[rstest]
-    #[case::rejected_without_010_support(Plugin::default(), None)]
-    #[case::served_with_010_support(
+    #[case::rejected_without_010_support(Plugin::default(), "plugin supports")]
+    #[case::layout_unsupported_despite_010_support(
         Plugin::new("1.1.0", vec!["0.1.0".to_string(), "1.1.0".to_string()]),
-        Some("0.1.0")
+        "unsupported CNI result version \"0.1.0\""
     )]
     fn test_plugin_inner_run_missing_cni_version(
         #[case] plugin: Plugin,
-        #[case] echoed: Option<&str>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        #[case] details_contain: &str,
+    ) {
         set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
         set_mock_input(r#"{"name":"test-network","type":"test"}"#);
 
         let result = plugin.inner_run::<MockCni, MockEnv, MockIo>(&MockCni);
-        match echoed {
-            Some(version) => {
-                let parsed: serde_json::Value = serde_json::from_str(&result?)?;
-                assert_eq!(parsed["cniVersion"], version);
+        match result {
+            Err(Error::IncompatibleVersion(details)) => {
+                assert!(details.contains(details_contain), "got: {details}");
             }
-            None => assert!(
-                matches!(result, Err(Error::IncompatibleVersion(_))),
-                "got: {result:?}"
-            ),
+            other => panic!("expected IncompatibleVersion, got {other:?}"),
         }
-        Ok(())
     }
 }

@@ -27,10 +27,12 @@ use thiserror::Error;
 /// - 5: I/O failure
 /// - 6: Failed to decode/parse data
 /// - 7: Invalid network configuration
+/// - 8: Invalid network namespace
 /// - 11: Try again later
 /// - 100+: Custom plugin-specific errors
 ///
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Incompatible CNI version (Error code: 1)
     ///
@@ -73,6 +75,12 @@ pub enum Error {
     /// Returned when network configuration validation fails.
     InvalidNetworkConfig(String),
 
+    /// Invalid network namespace (Error code: 8)
+    ///
+    /// Absent from the specification's error table, but defined and emitted by the
+    /// reference implementation, so a runtime reads it back as this.
+    InvalidNetNS(String),
+
     /// Try again later (Error code: 11)
     ///
     /// Returned when the plugin detects a transient condition that should clear up.
@@ -98,7 +106,9 @@ pub enum Error {
     ///
     /// # Arguments
     ///
-    /// * First field: Error code (must be >= 100)
+    /// * First field: Error code. Use >= 100 when raising one: the spec reserves
+    ///   0-99. Reading a foreign plugin's error result can also yield a reserved code
+    ///   this crate has no variant for, which lands here verbatim.
     /// * Second field: Short error message
     /// * Third field: Detailed error description
     ///
@@ -119,6 +129,16 @@ pub enum Error {
 }
 
 impl Error {
+    /// The error for absent required environment variables, naming them in the
+    /// details as the spec's code-4 entry requires.
+    #[must_use]
+    pub fn missing_env(vars: &[&str]) -> Self {
+        Self::InvalidEnvValue(format!(
+            "required env variables [{}] missing",
+            vars.join(",")
+        ))
+    }
+
     /// Outputs details
     #[must_use]
     pub fn details(&self) -> String {
@@ -131,6 +151,7 @@ impl Error {
             Self::IOFailure(details) => details.clone(),
             Self::FailedToDecode(details) => details.clone(),
             Self::InvalidNetworkConfig(details) => details.clone(),
+            Self::InvalidNetNS(details) => details.clone(),
             Self::TryAgainLater(details) => details.clone(),
             Self::PluginNotAvailable(details) => details.clone(),
             Self::PluginNotAvailableLimitedConnectivity(details) => details.clone(),
@@ -153,6 +174,7 @@ impl std::fmt::Display for Error {
             Self::IOFailure(_) => "I/O failure",
             Self::FailedToDecode(_) => "Failed to decode content",
             Self::InvalidNetworkConfig(_) => "Invalid network config",
+            Self::InvalidNetNS(_) => "Invalid network namespace",
             Self::TryAgainLater(_) => "Try again later",
             Self::PluginNotAvailable(_) => "Plugin not available",
             Self::PluginNotAvailableLimitedConnectivity(_) => {
@@ -174,6 +196,7 @@ impl From<&Error> for u32 {
             Error::IOFailure(_) => 5,
             Error::FailedToDecode(_) => 6,
             Error::InvalidNetworkConfig(_) => 7,
+            Error::InvalidNetNS(_) => 8,
             Error::TryAgainLater(_) => 11,
             Error::PluginNotAvailable(_) => 50,
             Error::PluginNotAvailableLimitedConnectivity(_) => 51,
@@ -197,6 +220,7 @@ mod tests {
     #[case(Error::IOFailure("test".to_string()), 5)]
     #[case(Error::FailedToDecode("test".to_string()), 6)]
     #[case(Error::InvalidNetworkConfig("test".to_string()), 7)]
+    #[case(Error::InvalidNetNS("test".to_string()), 8)]
     #[case(Error::TryAgainLater("test".to_string()), 11)]
     #[case(Error::PluginNotAvailable("test".to_string()), 50)]
     #[case(Error::PluginNotAvailableLimitedConnectivity("test".to_string()), 51)]
@@ -214,6 +238,7 @@ mod tests {
     #[case(5, "failed to read", Error::IOFailure("failed to read".to_string()))]
     #[case(6, "invalid JSON", Error::FailedToDecode("invalid JSON".to_string()))]
     #[case(7, "missing field", Error::InvalidNetworkConfig("missing field".to_string()))]
+    #[case(8, "netns is the plugin's own", Error::InvalidNetNS("netns is the plugin's own".to_string()))]
     #[case(11, "resource busy", Error::TryAgainLater("resource busy".to_string()))]
     fn test_error_result_to_error_conversion_standard(
         #[case] code: u32,
@@ -232,6 +257,8 @@ mod tests {
     }
 
     #[rstest]
+    // A reserved code without a variant (99) survives like any plugin-defined one.
+    #[case(99, "Unknown", "unknown code")]
     // 100 is the boundary: the spec reserves 0-99, so 100 itself is already custom.
     #[case(100, "Boundary custom", "first plugin-defined code")]
     #[case(101, "Custom error", "custom details")]
@@ -258,16 +285,13 @@ mod tests {
     }
 
     #[test]
-    fn test_error_result_to_error_conversion_unknown() {
-        let error_result = ErrorResult {
-            cni_version: "1.1.0".to_string(),
-            code: 99,
-            msg: "Unknown".to_string(),
-            details: "unknown code".to_string(),
-        };
+    fn test_error_result_reads_the_reference_wire_form() -> Result<(), Box<dyn std::error::Error>> {
+        // The reference implementation emits no cniVersion and omits empty details.
+        let error_result: ErrorResult =
+            serde_json::from_str(r#"{"code":4,"msg":"required env variables missing"}"#)?;
         let error = Error::from(&error_result);
-        assert!(matches!(error, Error::FailedToDecode(_)));
-        assert!(error.details().contains("unknown error code: 99"));
+        assert_eq!(u32::from(&error), 4);
+        Ok(())
     }
 
     #[rstest]
