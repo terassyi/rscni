@@ -9,29 +9,13 @@
 //! understand what went wrong and how to handle it.
 //!
 
-use thiserror::Error;
-
 /// CNI error types as defined by the CNI specification.
 ///
 /// Each variant corresponds to a specific error code and includes a detail message.
 /// When returned from a CNI plugin, these errors are automatically formatted as
 /// JSON error responses according to the CNI spec.
 /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#error>
-///
-/// # CNI Error Codes
-///
-/// - 1: Incompatible CNI version
-/// - 2: Unsupported network configuration field
-/// - 3: Container does not exist
-/// - 4: Invalid environment variable
-/// - 5: I/O failure
-/// - 6: Failed to decode/parse data
-/// - 7: Invalid network configuration
-/// - 8: Invalid network namespace
-/// - 11: Try again later
-/// - 100+: Custom plugin-specific errors
-///
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
     /// Incompatible CNI version (Error code: 1)
@@ -139,34 +123,11 @@ impl Error {
         ))
     }
 
-    /// Outputs details
+    /// The wire `msg`: the specification's short wording for this error's code. An
+    /// [`Error::Custom`] carries its own.
     #[must_use]
-    pub fn details(&self) -> String {
-        #[allow(clippy::match_same_arms)]
+    pub fn msg(&self) -> &str {
         match self {
-            Self::IncompatibleVersion(details) => details.clone(),
-            Self::UnsupportedNetworkConfiguration(details) => details.clone(),
-            Self::NotExist(details) => details.clone(),
-            Self::InvalidEnvValue(details) => details.clone(),
-            Self::IOFailure(details) => details.clone(),
-            Self::FailedToDecode(details) => details.clone(),
-            Self::InvalidNetworkConfig(details) => details.clone(),
-            Self::InvalidNetNS(details) => details.clone(),
-            Self::TryAgainLater(details) => details.clone(),
-            Self::PluginNotAvailable(details) => details.clone(),
-            Self::PluginNotAvailableLimitedConnectivity(details) => details.clone(),
-            Self::Custom(_, _, details) => details.clone(),
-        }
-    }
-}
-
-impl std::fmt::Display for Error {
-    /// The specification's wire `msg`: a short message characterizing the error. For
-    /// the reserved variants this is the spec's fixed wording; for [`Error::Custom`]
-    /// it is the raw message as given, with no decoration — this string goes on the
-    /// wire verbatim, so it must survive serialize/deserialize round trips unchanged.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let msg = match self {
             Self::IncompatibleVersion(_) => "Incompatible CNI version",
             Self::UnsupportedNetworkConfiguration(_) => "Unsupported network configuration",
             Self::NotExist(_) => "Container does not exist",
@@ -181,8 +142,37 @@ impl std::fmt::Display for Error {
                 "Plugin not available, limited connectivity"
             }
             Self::Custom(_, msg, _) => msg,
-        };
-        f.write_str(msg)
+        }
+    }
+
+    /// The wire `details`: the longer description accompanying the error code.
+    #[must_use]
+    pub fn details(&self) -> &str {
+        match self {
+            Self::IncompatibleVersion(details)
+            | Self::UnsupportedNetworkConfiguration(details)
+            | Self::NotExist(details)
+            | Self::InvalidEnvValue(details)
+            | Self::IOFailure(details)
+            | Self::FailedToDecode(details)
+            | Self::InvalidNetworkConfig(details)
+            | Self::InvalidNetNS(details)
+            | Self::TryAgainLater(details)
+            | Self::PluginNotAvailable(details)
+            | Self::PluginNotAvailableLimitedConnectivity(details)
+            | Self::Custom(_, _, details) => details,
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.details() {
+            "" => f.write_str(self.msg()),
+            details => write!(f, "{}; {details}", self.msg()),
+        }
     }
 }
 
@@ -251,9 +241,7 @@ mod tests {
             msg: "Test message".to_string(),
             details: details.to_string(),
         };
-        let error = Error::from(&error_result);
-        assert_eq!(error.details(), expected.details());
-        assert_eq!(u32::from(&error), u32::from(&expected));
+        assert_eq!(Error::from(error_result), expected);
     }
 
     #[rstest]
@@ -274,14 +262,10 @@ mod tests {
             msg: msg.to_string(),
             details: details.to_string(),
         };
-        let error = Error::from(&error_result);
-        if let Error::Custom(result_code, result_msg, result_details) = error {
-            assert_eq!(result_code, code);
-            assert_eq!(result_msg, msg);
-            assert_eq!(result_details, details);
-        } else {
-            panic!("Expected Custom error, got: {error:?}");
-        }
+        assert_eq!(
+            Error::from(error_result),
+            Error::Custom(code, msg.to_string(), details.to_string())
+        );
     }
 
     #[test]
@@ -289,7 +273,7 @@ mod tests {
         // The reference implementation emits no cniVersion and omits empty details.
         let error_result: ErrorResult =
             serde_json::from_str(r#"{"code":4,"msg":"required env variables missing"}"#)?;
-        let error = Error::from(&error_result);
+        let error = Error::from(error_result);
         assert_eq!(u32::from(&error), 4);
         Ok(())
     }
@@ -301,9 +285,6 @@ mod tests {
         "Invalid necessary environment variables"
     )]
     #[case(Error::TryAgainLater("resource busy".to_string()), 11, "Try again later")]
-    // A custom error's wire msg is its raw message as given: `Display` is defined as
-    // the wire msg, so it must carry no decoration that would accumulate on every
-    // wire crossing.
     #[case(Error::Custom(100, "custom".to_string(), "details".to_string()), 100, "custom")]
     fn test_error_result_new_round_trips(
         #[case] error: Error,
@@ -320,7 +301,7 @@ mod tests {
         // Reading its own wire form back yields an error with the same code and
         // details, and re-emitting that error reproduces the same wire msg — the
         // representation is stable across round trips.
-        let read_back = Error::from(&result);
+        let read_back = Error::from(result);
         assert_eq!(u32::from(&read_back), code);
         assert_eq!(read_back.details(), error.details());
         assert_eq!(ErrorResult::new("1.1.0", &read_back).msg, wire_msg);

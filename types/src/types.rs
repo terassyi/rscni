@@ -666,7 +666,7 @@ impl<'de> Deserialize<'de> for Protocol {
 ///
 /// Both sides of the error protocol go through this type: a failing plugin serializes
 /// it to stdout (built with [`ErrorResult::new`]), and a runtime deserializes a failed
-/// plugin's stdout into it and converts it back with `Error::from(&result)`.
+/// plugin's stdout into it and converts it back with `Error::from(result)`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorResult {
@@ -690,40 +690,38 @@ pub struct ErrorResult {
 impl ErrorResult {
     /// Builds the wire form of `error`, reported under `cni_version`.
     ///
-    /// The code comes from the error's CNI error code, the message from its `Display`
-    /// form (which is defined as the wire `msg`), and the details from
-    /// [`Error::details`]. Note the spec reserves codes 0-99; an [`Error::Custom`]
-    /// carrying a reserved code is serialized as-is, and a runtime reading it back
-    /// will interpret it as the reserved meaning.
+    /// The spec reserves codes 0-99; an [`Error::Custom`] carrying a reserved code is
+    /// serialized as-is, and a runtime reading it back interprets it as the reserved
+    /// meaning.
     #[must_use]
     pub fn new(cni_version: impl Into<String>, error: &Error) -> Self {
         Self {
             cni_version: cni_version.into(),
             code: u32::from(error),
-            msg: error.to_string(),
-            details: error.details(),
+            msg: error.msg().to_string(),
+            details: error.details().to_string(),
         }
     }
 }
 
-impl From<&ErrorResult> for Error {
-    fn from(res: &ErrorResult) -> Self {
+impl From<ErrorResult> for Error {
+    fn from(res: ErrorResult) -> Self {
         match res.code {
-            1 => Self::IncompatibleVersion(res.details.clone()),
-            2 => Self::UnsupportedNetworkConfiguration(res.details.clone()),
-            3 => Self::NotExist(res.details.clone()),
-            4 => Self::InvalidEnvValue(res.details.clone()),
-            5 => Self::IOFailure(res.details.clone()),
-            6 => Self::FailedToDecode(res.details.clone()),
-            7 => Self::InvalidNetworkConfig(res.details.clone()),
-            8 => Self::InvalidNetNS(res.details.clone()),
-            11 => Self::TryAgainLater(res.details.clone()),
-            50 => Self::PluginNotAvailable(res.details.clone()),
-            51 => Self::PluginNotAvailableLimitedConnectivity(res.details.clone()),
+            1 => Self::IncompatibleVersion(res.details),
+            2 => Self::UnsupportedNetworkConfiguration(res.details),
+            3 => Self::NotExist(res.details),
+            4 => Self::InvalidEnvValue(res.details),
+            5 => Self::IOFailure(res.details),
+            6 => Self::FailedToDecode(res.details),
+            7 => Self::InvalidNetworkConfig(res.details),
+            8 => Self::InvalidNetNS(res.details),
+            11 => Self::TryAgainLater(res.details),
+            50 => Self::PluginNotAvailable(res.details),
+            51 => Self::PluginNotAvailableLimitedConnectivity(res.details),
             // Plugin-defined codes and reserved ones without a variant alike: kept
             // verbatim, since rewriting them would misreport what the plugin said.
             // Only minting new errors is restricted to the >= 100 band.
-            code => Self::Custom(code, res.msg.clone(), res.details.clone()),
+            code => Self::Custom(code, res.msg, res.details),
         }
     }
 }
