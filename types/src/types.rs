@@ -690,17 +690,15 @@ pub struct ErrorResult {
 impl ErrorResult {
     /// Builds the wire form of `error`, reported under `cni_version`.
     ///
-    /// The code comes from the error's CNI error code, the message from its `Display`
-    /// form (which is defined as the wire `msg`), and the details from
-    /// [`Error::details`]. Note the spec reserves codes 0-99; an [`Error::Custom`]
-    /// carrying a reserved code is serialized as-is, and a runtime reading it back
-    /// will interpret it as the reserved meaning.
+    /// The spec reserves codes 0-99; an [`Error::Custom`] carrying a reserved code is
+    /// serialized as-is, and a runtime reading it back interprets it as the reserved
+    /// meaning.
     #[must_use]
     pub fn new(cni_version: impl Into<String>, error: &Error) -> Self {
         Self {
             cni_version: cni_version.into(),
             code: u32::from(error),
-            msg: error.to_string(),
+            msg: error.msg().to_string(),
             details: error.details().to_string(),
         }
     }

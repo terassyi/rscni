@@ -144,8 +144,8 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// Returns an error if the environment variable cannot be read, or holds a value
     /// [`ContainerId`] rejects.
-    // Converted here rather than by `E::get::<ContainerId>`: that renders the failure
-    // through `Error`'s `Display`, which is the wire msg, losing the details.
+    // Converted here rather than by `E::get::<ContainerId>`: that re-wraps the failure
+    // through its `Display`, folding a whole rendered error into the details.
     pub fn container_id(mut self) -> Result<Self, Error> {
         self.container_id = E::get::<String>(CNI_CONTAINERID)?
             .map(ContainerId::try_from)
