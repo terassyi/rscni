@@ -694,9 +694,9 @@ impl ErrorResult {
     /// serialized as-is, and a runtime reading it back interprets it as the reserved
     /// meaning.
     #[must_use]
-    pub fn new(cni_version: impl Into<String>, error: &Error) -> Self {
+    pub fn new(cni_version: SpecVersion, error: &Error) -> Self {
         Self {
-            cni_version: cni_version.into(),
+            cni_version: cni_version.to_string(),
             code: u32::from(error),
             msg: error.msg().to_string(),
             details: error.details().to_string(),
