@@ -14,15 +14,15 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
-    pub(crate) cni_version: String,
-    pub(crate) supported_versions: Vec<String>,
+    pub(crate) cni_version: SpecVersion,
+    pub(crate) supported_versions: Vec<SpecVersion>,
 }
 
 impl PluginInfo {
     #[must_use]
-    pub fn new(cni_version: &str, supported_versions: Vec<String>) -> Self {
+    pub const fn new(cni_version: SpecVersion, supported_versions: Vec<SpecVersion>) -> Self {
         Self {
-            cni_version: cni_version.to_string(),
+            cni_version,
             supported_versions,
         }
     }
@@ -31,7 +31,7 @@ impl PluginInfo {
 impl Default for PluginInfo {
     fn default() -> Self {
         Self {
-            cni_version: SpecVersion::CURRENT.to_string(),
+            cni_version: SpecVersion::CURRENT,
             // Spelled as literals, not derived from `CURRENT`: this is the history of
             // versions the crate can speak, which only ever grows. When `CURRENT` is
             // bumped, the new version is appended here — the old entries must survive,
@@ -39,11 +39,11 @@ impl Default for PluginInfo {
             // 0.1.0 and 0.2.0 are deliberately absent: their ADD result uses the
             // `ip4`/`ip6` layout this crate does not produce.
             supported_versions: vec![
-                "0.3.0".to_string(),
-                "0.3.1".to_string(),
-                "0.4.0".to_string(),
-                "1.0.0".to_string(),
-                "1.1.0".to_string(),
+                SpecVersion::new(0, 3, 0),
+                SpecVersion::new(0, 3, 1),
+                SpecVersion::new(0, 4, 0),
+                SpecVersion::new(1, 0, 0),
+                SpecVersion::new(1, 1, 0),
             ],
         }
     }
@@ -52,13 +52,13 @@ impl Default for PluginInfo {
 impl PluginInfo {
     /// Returns the CNI specification version this plugin reports as its own.
     #[must_use]
-    pub fn cni_version(&self) -> &str {
-        &self.cni_version
+    pub const fn cni_version(&self) -> SpecVersion {
+        self.cni_version
     }
 
     /// Returns every CNI specification version this plugin can be asked to speak.
     #[must_use]
-    pub fn supported_versions(&self) -> &[String] {
+    pub fn supported_versions(&self) -> &[SpecVersion] {
         &self.supported_versions
     }
 
@@ -77,14 +77,19 @@ impl PluginInfo {
     /// Returns [`Error::IncompatibleVersion`] if `ver` is not a supported version.
     /// The details name the supported set — like the reference implementation's
     /// wording — so a runtime's diagnostics show what would have been accepted.
-    pub fn validate(&self, ver: &str) -> Result<(), Error> {
-        if !self.supported_versions.iter().any(|p| p.eq(ver)) {
-            return Err(Error::IncompatibleVersion(format!(
-                "config is \"{ver}\", plugin supports {:?}",
-                self.supported_versions
-            )));
+    pub fn validate(&self, ver: SpecVersion) -> Result<(), Error> {
+        if self.supported_versions.contains(&ver) {
+            return Ok(());
         }
-        Ok(())
+        // Quoted like the reference implementation's `%q` over its version slice.
+        let supported: Vec<String> = self
+            .supported_versions
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        Err(Error::IncompatibleVersion(format!(
+            r#"config is "{ver}", plugin supports {supported:?}"#
+        )))
     }
 
     /// Runs the version negotiation every dispatchable operation performs: `conf`'s
@@ -105,7 +110,7 @@ impl PluginInfo {
     pub fn negotiate(&self, conf: &NetConf, cmd: Cmd) -> Result<SpecVersion, Error> {
         let version = conf.version()?;
         version.allows(cmd)?;
-        self.validate(&version.to_string())?;
+        self.validate(version)?;
         Ok(version)
     }
 }
@@ -140,6 +145,12 @@ impl SpecVersion {
     const CHECK_FLOOR: Self = Self(0, 4, 0);
     /// The lowest config version for which GC and STATUS exist (introduced in 1.1.0).
     const GC_AND_STATUS_FLOOR: Self = Self(1, 1, 0);
+
+    /// Names a version in source, where [`FromStr`] would only check it at run time.
+    #[must_use]
+    pub const fn new(major: u32, minor: u32, patch: u32) -> Self {
+        Self(major, minor, patch)
+    }
 
     /// Checks that `cmd` exists at this specification version.
     ///
@@ -255,26 +266,33 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case(PluginInfo::default(), "1.1.0", true)]
-    #[case(PluginInfo::default(), "1.0.0", true)]
-    #[case(PluginInfo::default(), "0.1.0", false)]
+    #[case(PluginInfo::default(), SpecVersion::new(1, 1, 0), None)]
+    #[case(PluginInfo::default(), SpecVersion::new(1, 0, 0), None)]
+    #[case(
+        PluginInfo::default(),
+        SpecVersion::new(0, 1, 0),
+        Some(
+            r#"config is "0.1.0", plugin supports ["0.3.0", "0.3.1", "0.4.0", "1.0.0", "1.1.0"]"#
+        )
+    )]
     // The reference reconciler consults the supported list alone: the plugin's own
     // version is not an implicit extra entry.
-    #[case(PluginInfo::new("1.1.0", vec!["1.0.0".to_string()]), "1.1.0", false)]
-    fn plugin_info_validate(#[case] info: PluginInfo, #[case] ver: &str, #[case] ok: bool) {
-        match info.validate(ver) {
-            Ok(()) => assert!(ok, "{ver} must be rejected"),
-            Err(Error::IncompatibleVersion(details)) => {
-                assert!(!ok, "{ver} must be accepted, got: {details}");
-                // The details must name the rejected version and the supported set.
-                assert!(
-                    details.contains(&format!("\"{ver}\""))
-                        && details.contains(&format!("{:?}", info.supported_versions())),
-                    "got: {details}"
-                );
-            }
+    #[case(
+        PluginInfo::new(SpecVersion::new(1, 1, 0), vec![SpecVersion::new(1, 0, 0)]),
+        SpecVersion::new(1, 1, 0),
+        Some(r#"config is "1.1.0", plugin supports ["1.0.0"]"#)
+    )]
+    fn plugin_info_validate(
+        #[case] info: PluginInfo,
+        #[case] ver: SpecVersion,
+        #[case] rejected: Option<&str>,
+    ) {
+        let details = match info.validate(ver) {
+            Ok(()) => None,
+            Err(Error::IncompatibleVersion(details)) => Some(details),
             Err(other) => panic!("unexpected error variant: {other:?}"),
-        }
+        };
+        assert_eq!(details.as_deref(), rejected);
     }
 
     #[rstest]
@@ -337,10 +355,7 @@ mod tests {
     fn spec_version_default_is_current() {
         assert_eq!(SpecVersion::default(), SpecVersion::CURRENT);
         // The default plugin claims the crate's current target version.
-        assert_eq!(
-            PluginInfo::default().cni_version,
-            SpecVersion::CURRENT.to_string()
-        );
+        assert_eq!(PluginInfo::default().cni_version, SpecVersion::CURRENT);
     }
 
     #[rstest]

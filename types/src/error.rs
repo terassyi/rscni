@@ -200,7 +200,7 @@ mod tests {
     use rstest::rstest;
 
     use super::Error;
-    use crate::types::ErrorResult;
+    use crate::{types::ErrorResult, version::SpecVersion};
 
     #[rstest]
     #[case(Error::IncompatibleVersion("test".to_string()), 1)]
@@ -291,7 +291,8 @@ mod tests {
         #[case] code: u32,
         #[case] wire_msg: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let result = ErrorResult::new("1.1.0", &error);
+        let ver = SpecVersion::new(1, 1, 0);
+        let result = ErrorResult::new(ver, &error);
         let json: serde_json::Value = serde_json::from_str(&serde_json::to_string(&result)?)?;
         assert_eq!(json["cniVersion"], "1.1.0");
         assert_eq!(json["code"], code);
@@ -304,7 +305,7 @@ mod tests {
         let read_back = Error::from(result);
         assert_eq!(u32::from(&read_back), code);
         assert_eq!(read_back.details(), error.details());
-        assert_eq!(ErrorResult::new("1.1.0", &read_back).msg, wire_msg);
+        assert_eq!(ErrorResult::new(ver, &read_back).msg, wire_msg);
         Ok(())
     }
 }

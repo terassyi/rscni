@@ -1,9 +1,11 @@
-//! Pins the deprecated `rscni` 0.3.0 facade to the API 0.2.x exposed.
+//! Pins that every path and trait shape a 0.2.x user wrote still resolves through the
+//! deprecated `rscni` facade.
 //!
-//! Everything below is written the way a 0.2.x user would have written it, against
-//! `rscni::*` rather than `rscni_plugin::*`. If this stops compiling, upgrading from
-//! 0.2.x to the facade is no longer source-compatible and the facade has failed at its
-//! only job.
+//! Everything below is written against `rscni::*` rather than `rscni_plugin::*`. If this
+//! stops compiling, the facade no longer re-exports what it was published to re-export.
+//! Signatures are not pinned: `rscni` is a path dependency on the workspace crate, so a
+//! breaking change to `rscni-plugin` is respelled here rather than caught. Only a
+//! dev-dependency on the published `rscni` would catch that.
 //!
 //! One path here is wider than 0.2.x: `rscni::version` was `pub(crate)` then, so
 //! `PluginInfo` was unreachable. The shim exposes it because `rscni-plugin` does. That is
@@ -20,7 +22,7 @@ use rscni::async_cni::{Cni as AsyncCni, Plugin as AsyncPlugin};
 use rscni::cni::{Cni, Plugin};
 use rscni::error::Error;
 use rscni::types::{Args, CNIResult, NetConf};
-use rscni::version::PluginInfo;
+use rscni::version::{PluginInfo, SpecVersion};
 
 struct SyncPlugin;
 
@@ -59,7 +61,10 @@ impl Cni for SyncPlugin {
 #[test]
 fn sync_plugin_builds_through_the_facade() -> Result<(), Box<dyn std::error::Error>> {
     let _default = Plugin::default();
-    let _custom = Plugin::new("1.1.0", vec!["1.0.0".to_string(), "1.1.0".to_string()]);
+    let _custom = Plugin::new(
+        SpecVersion::new(1, 1, 0),
+        vec![SpecVersion::new(1, 0, 0), SpecVersion::new(1, 1, 0)],
+    );
     let _with_msg = Plugin::default().msg("compat");
 
     // `run()` reads the CNI_* environment and stdin, so it is not called here. The point

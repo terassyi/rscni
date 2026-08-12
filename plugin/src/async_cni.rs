@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use rscni_types::{
     error::Error,
     types::{CNI_COMMAND, CNIResult, Cmd, ErrorResult},
-    version::PluginInfo,
+    version::{PluginInfo, SpecVersion},
 };
 
 use crate::{
@@ -199,11 +199,6 @@ pub struct Plugin {
 impl Plugin {
     /// Creates a new `Plugin` with custom CNI version support.
     ///
-    /// # Arguments
-    ///
-    /// * `ver` - The primary CNI version (e.g., "1.1.0")
-    /// * `versions` - List of supported CNI versions
-    ///
     /// The ADD success output is serialized in the result layout the negotiated
     /// config version requires: the legacy layout for versions 0.3.0 through 0.4.0,
     /// the current one for 1.0.0 and later. Versions 0.1.0 and 0.2.0 define yet
@@ -214,15 +209,15 @@ impl Plugin {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use rscni_plugin::async_cni::Plugin;
+    /// use rscni_plugin::{async_cni::Plugin, version::SpecVersion};
     ///
     /// let plugin = Plugin::new(
-    ///     "1.1.0",
-    ///     vec!["1.0.0".to_string(), "1.1.0".to_string()]
+    ///     SpecVersion::new(1, 1, 0),
+    ///     vec![SpecVersion::new(1, 0, 0), SpecVersion::new(1, 1, 0)]
     /// );
     /// ```
     #[must_use]
-    pub fn new(ver: &str, versions: Vec<String>) -> Self {
+    pub const fn new(ver: SpecVersion, versions: Vec<SpecVersion>) -> Self {
         Self {
             info: PluginInfo::new(ver, versions),
             msg: None,
@@ -326,7 +321,12 @@ impl Plugin {
             .ok_or_else(|| Error::missing_env(&[CNI_COMMAND]))?;
         let help = format!(
             "{msg}\nCNI protocol versions supported: {}\n",
-            self.info.supported_versions().join(", ")
+            self.info
+                .supported_versions()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         let _ = I::io_err().write_all(help.as_bytes());
         Ok(())
@@ -918,7 +918,7 @@ mod tests {
         "config version does not allow STATUS"
     )]
     #[case::unsupported_version(
-        Plugin::new("1.0.0", vec!["1.0.0".to_string()]),
+        Plugin::new(SpecVersion::new(1, 0, 0), vec![SpecVersion::new(1, 0, 0)]),
         "ADD",
         "0.4.0",
         r#"config is "0.4.0""#
@@ -949,7 +949,10 @@ mod tests {
     #[rstest]
     #[case::rejected_without_010_support(Plugin::default(), "plugin supports")]
     #[case::layout_unsupported_despite_010_support(
-        Plugin::new("1.1.0", vec!["0.1.0".to_string(), "1.1.0".to_string()]),
+        Plugin::new(
+            SpecVersion::new(1, 1, 0),
+            vec![SpecVersion::new(0, 1, 0), SpecVersion::new(1, 1, 0)]
+        ),
         "unsupported CNI result version \"0.1.0\""
     )]
     #[tokio::test]
