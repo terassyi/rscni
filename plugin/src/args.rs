@@ -42,7 +42,7 @@ pub struct Args {
     /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
     path: Vec<PathBuf>,
     /// Please see [`NetConf`].
-    config: Option<NetConf>,
+    config: NetConf,
 }
 
 impl Args {
@@ -76,32 +76,11 @@ impl Args {
         &self.path
     }
 
-    /// Returns the network configuration if present.
+    /// Returns the network configuration read from stdin. Every operation that
+    /// reaches a [`Cni`](crate::cni::Cni) implementation is given one.
     #[must_use]
-    pub const fn config(&self) -> Option<&NetConf> {
-        self.config.as_ref()
-    }
-}
-
-/// Every dispatchable operation requires the network configuration on stdin, so
-/// dispatch converts `Args` into the [`NetConf`] it must contain, failing with
-/// [`Error::InvalidNetworkConfig`] (error code 7) when it is absent, or carries no
-/// usable network name.
-///
-/// The absence must be a hard error rather than a skipped check: a stdin of literal
-/// JSON `null` deserializes into *no configuration* without a decode error, and
-/// treating that as "nothing to validate" would bypass version negotiation entirely
-/// and hand the [`Cni`](crate::cni::Cni) implementation an `Args` the specification
-/// says cannot exist.
-impl<'a> TryFrom<&'a Args> for &'a NetConf {
-    type Error = Error;
-
-    fn try_from(args: &'a Args) -> Result<Self, Self::Error> {
-        let conf = args.config().ok_or_else(|| {
-            Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
-        })?;
-        conf.validate_name()?;
-        Ok(conf)
+    pub const fn config(&self) -> &NetConf {
+        &self.config
     }
 }
 
@@ -267,15 +246,21 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     ///
     /// # Errors
     ///
-    /// This function currently always returns `Ok`, but returns `Result` for API consistency.
+    /// Returns [`Error::InvalidNetworkConfig`] (error code 7) if the network
+    /// configuration is absent, or carries no usable network name.
     pub fn build(self) -> Result<Args, Error> {
+        // A stdin of literal JSON `null` deserializes into no configuration, not an error.
+        let config = self.config.ok_or_else(|| {
+            Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
+        })?;
+        config.validate_name()?;
         Ok(Args {
             container_id: self.container_id,
             netns: self.netns,
             ifname: self.ifname,
             args: self.args,
             path: self.path,
-            config: self.config,
+            config,
         })
     }
 }

@@ -336,7 +336,7 @@ impl Plugin {
                 // use their legacy result layout. Refused before the callback runs, so
                 // a version whose layout this crate cannot render fails without
                 // leaving the attachment behind.
-                let cni_version = self.info.negotiate((&args).try_into()?, cmd)?;
+                let cni_version = self.info.negotiate(args.config(), cmd)?;
                 if !cni_version.is_supported() {
                     return Err(Error::IncompatibleVersion(format!(
                         "unsupported CNI result version \"{cni_version}\""
@@ -355,7 +355,7 @@ impl Plugin {
                     .validate(cmd)?
                     .config()?
                     .build()?;
-                self.info.negotiate((&args).try_into()?, cmd)?;
+                self.info.negotiate(args.config(), cmd)?;
                 cni.del(args).await?;
                 Ok(String::new())
             }
@@ -369,7 +369,7 @@ impl Plugin {
                     .validate(cmd)?
                     .config()?
                     .build()?;
-                self.info.negotiate((&args).try_into()?, cmd)?;
+                self.info.negotiate(args.config(), cmd)?;
                 cni.check(args).await?;
                 Ok(String::new())
             }
@@ -379,7 +379,7 @@ impl Plugin {
                     .validate(cmd)?
                     .config()?
                     .build()?;
-                self.info.negotiate((&args).try_into()?, cmd)?;
+                self.info.negotiate(args.config(), cmd)?;
                 cni.status(args).await?;
                 Ok(String::new())
             }
@@ -389,7 +389,7 @@ impl Plugin {
                     .validate(cmd)?
                     .config()?
                     .build()?;
-                self.info.negotiate((&args).try_into()?, cmd)?;
+                self.info.negotiate(args.config(), cmd)?;
                 cni.gc(args).await?;
                 Ok(String::new())
             }
