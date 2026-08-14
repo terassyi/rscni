@@ -34,11 +34,9 @@ impl Cni for SyncPlugin {
         let _ = args.ifname();
         let _ = args.args();
         let _ = args.path();
-        let config: Option<&NetConf> = args.config();
+        let config = args.config();
 
-        Ok(config
-            .and_then(|c| c.prev_result.clone())
-            .unwrap_or_default())
+        Ok(config.prev_result.clone().unwrap_or_default())
     }
 
     fn del(&self, _args: Args) -> Result<CNIResult, Error> {

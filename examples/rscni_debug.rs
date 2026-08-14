@@ -92,9 +92,7 @@ fn add(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Add";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args
-        .config()
-        .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
+    let net_conf = args.config();
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
     let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
@@ -112,9 +110,7 @@ fn del(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Del";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args
-        .config()
-        .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
+    let net_conf = args.config();
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
     let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
@@ -132,9 +128,7 @@ fn check(args: Args) -> Result<CNIResult, Error> {
     let cmd = "Check";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args
-        .config()
-        .ok_or_else(|| Error::InvalidNetworkConfig("cniOutput must be given".to_string()))?;
+    let net_conf = args.config();
     let debug_conf = DebugConf::parse(&net_conf.custom)?;
 
     let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
@@ -149,12 +143,8 @@ fn check(args: Args) -> Result<CNIResult, Error> {
 }
 
 fn output_args(cmd: &str, args: &Args) -> Result<String, Error> {
-    let stdin_data = match args.config() {
-        Some(conf) => {
-            serde_json::to_string(&conf).map_err(|e| Error::FailedToDecode(e.to_string()))?
-        }
-        None => "{}".to_string(),
-    };
+    let stdin_data =
+        serde_json::to_string(args.config()).map_err(|e| Error::FailedToDecode(e.to_string()))?;
     let out = format!(
         r#"CNI_COMMAND: {}
 CNI_CONTAINERID: {}
