@@ -68,9 +68,8 @@ pub mod error {
 
 /// CNI specification types, plus the plugin-side invocation input.
 ///
-/// The specification types are re-exported from [`rscni_types::types`].
-/// [`Args`](crate::types::Args) is specific to being invoked as a plugin and is defined
-/// by this crate.
+/// The specification types are re-exported from [`rscni_types::types`];
+/// [`Args`](crate::types::Args) is defined by this crate.
 pub mod types {
     #[doc(inline)]
     pub use rscni_types::types::*;

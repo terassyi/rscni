@@ -1,14 +1,5 @@
 //! Plugin-side plumbing: env/IO abstractions (the test seam for the mock env and mock
-//! stdio in the `cni`/`async_cni` tests) and the ADD result's wire rendering.
-//!
-//! Everything here is `pub` *in a private module*, which is not reachable from outside
-//! the crate (`use rscni_plugin::util::…` is E0603). The plain `pub` is load-bearing
-//! for `Env`/`Io`: they appear as bounds on `ArgsBuilder`, which is itself `pub` in a
-//! private module, and rustc's `private_bounds` lint requires a bound to be formally at
-//! least as visible as the item it constrains. Narrowing them to `pub(crate)` turns that
-//! warning on, and `-D warnings` turns it into a CI failure. Clippy's
-//! `redundant_pub_crate` pushes the same way: `pub(crate)` inside a private module is a
-//! warning, plain `pub` is not.
+//! stdio in the `cni`/`async_cni` tests) and the ADD result's JSON rendering.
 
 use std::{io, str::FromStr};
 

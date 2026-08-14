@@ -11,6 +11,9 @@
 //! `PluginInfo` was unreachable. The shim exposes it because `rscni-plugin` does. That is
 //! additive, and pinning it costs nothing.
 //!
+//! One is narrower: `rscni::types::ArgsBuilder` resolved in 0.2.x but could never be
+//! instantiated from outside, so it is gone rather than pinned.
+//!
 //! `Plugin` is a deprecated type alias in the facade, so naming it warns — that warning
 //! is the facade's whole point, so it is silenced here rather than fixed. Removing the
 //! `allow` below and running `cargo check -p integration-tests --tests` is how to confirm
