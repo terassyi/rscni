@@ -142,7 +142,7 @@ async fn main() {
 - `types::CNIResult` - Plugin execution result with IPs, routes, DNS
 - `version::PluginInfo` - Plugin version information
 
-Everything except `Args` and `ArgsBuilder` is re-exported from [`rscni-types`](https://crates.io/crates/rscni-types), so `rscni_plugin::types::NetConf` and `rscni_types::types::NetConf` are the same type. `Args` is specific to being invoked as a plugin, which is why it lives here.
+Everything except `Args` is re-exported from [`rscni-types`](https://crates.io/crates/rscni-types), so `rscni_plugin::types::NetConf` and `rscni_types::types::NetConf` are the same type. `Args` is specific to being invoked as a plugin, which is why it lives here.
 
 See the [API documentation](https://docs.rs/rscni-plugin) for complete type definitions.
 
