@@ -411,6 +411,7 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Cursor, Read, Write};
     use std::net::{IpAddr, Ipv4Addr};
+    use std::path::PathBuf;
     use std::str::FromStr;
 
     // Thread-local storage for mock environment variables
@@ -515,11 +516,24 @@ mod tests {
     const DEFAULT_ROUTE: IpNet = IpNet::V4(Ipv4Net::new_assert(Ipv4Addr::UNSPECIFIED, 0));
     const GATEWAY: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 1, 0, 1));
 
+    // The `Args` the last dispatched callback received, for the tests that assert what
+    // reached the plugin rather than what it returned.
+    thread_local! {
+        static SEEN: RefCell<Option<Args>> = const { RefCell::new(None) };
+    }
+
     // Mock Cni implementation
     struct MockCni;
 
+    impl MockCni {
+        fn capture(args: Args) {
+            SEEN.with(|s| *s.borrow_mut() = Some(args));
+        }
+    }
+
     impl Cni for MockCni {
-        fn add(&self, _args: Args) -> Result<CNIResult, Error> {
+        fn add(&self, args: Args) -> Result<CNIResult, Error> {
+            Self::capture(args);
             Ok(CNIResult {
                 interfaces: vec![Interface {
                     name: "eth0".to_string(),
@@ -552,19 +566,23 @@ mod tests {
             })
         }
 
-        fn del(&self, _args: Args) -> Result<CNIResult, Error> {
+        fn del(&self, args: Args) -> Result<CNIResult, Error> {
+            Self::capture(args);
             Ok(CNIResult::default())
         }
 
-        fn check(&self, _args: Args) -> Result<CNIResult, Error> {
+        fn check(&self, args: Args) -> Result<CNIResult, Error> {
+            Self::capture(args);
             Ok(CNIResult::default())
         }
 
-        fn status(&self, _args: Args) -> Result<(), Error> {
+        fn status(&self, args: Args) -> Result<(), Error> {
+            Self::capture(args);
             Ok(())
         }
 
-        fn gc(&self, _args: Args) -> Result<(), Error> {
+        fn gc(&self, args: Args) -> Result<(), Error> {
+            Self::capture(args);
             Ok(())
         }
     }
@@ -665,6 +683,7 @@ mod tests {
         MOCK_ENV.with(|env| env.borrow_mut().clear());
         MOCK_OUTPUT.with(|out| out.borrow_mut().clear());
         MOCK_OUTPUT_BROKEN.with(|broken| broken.set(false));
+        SEEN.with(|seen| *seen.borrow_mut() = None);
         let vars = [
             ("CNI_COMMAND", command),
             ("CNI_CONTAINERID", container_id),
@@ -810,6 +829,40 @@ mod tests {
             panic!("ADD must reject this stdin");
         };
         assert_eq!(u32::from(&err), code, "got: {err:?}");
+    }
+
+    // Which environment each command hands to the `Cni` implementation. Every variable is
+    // set for every case, so a reader dropped from the per-command selection shows up here
+    // as an absent field — `validate` cannot catch that for a variable the command treats
+    // as optional.
+    #[rstest]
+    #[case::add("ADD", true)]
+    #[case::del("DEL", true)]
+    #[case::check("CHECK", true)]
+    #[case::status("STATUS", false)]
+    #[case::gc("GC", false)]
+    fn test_dispatch_populates_the_env_each_command_reads(
+        #[case] command: &str,
+        #[case] attaches: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        set_dispatch_env(command, "test-container", "/var/run/netns/test", "eth0");
+        set_mock_env("CNI_ARGS", "K=V");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+
+        Plugin::default()
+            .inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
+            .map_err(|e| format!("{command} must succeed: {e}"))?;
+
+        let seen = SEEN
+            .with(|s| s.borrow_mut().take())
+            .ok_or_else(|| format!("{command} never reached the callback"))?;
+        assert_eq!(seen.container_id().is_some(), attaches, "container_id");
+        assert_eq!(seen.netns().is_some(), attaches, "netns");
+        assert_eq!(seen.ifname().is_some(), attaches, "ifname");
+        assert_eq!(seen.args().is_some(), attaches, "args");
+        // Every command reads CNI_PATH.
+        assert_eq!(seen.path(), [PathBuf::from("/opt/cni/bin")], "path");
+        Ok(())
     }
 
     // Version negotiation rejections, all error code 1. The floor cases use versions
