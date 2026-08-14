@@ -352,7 +352,7 @@ impl NetConf {
 }
 
 /// `NetConfList` is a network configuration format for administrators.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NetConfList {
     /// Semantic Version 2.0 of CNI specification to which this configuration list and all the individual configurations conform.

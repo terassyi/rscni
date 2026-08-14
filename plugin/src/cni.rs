@@ -14,7 +14,7 @@ use crate::{
 /// The core trait for implementing a CNI plugin.
 ///
 /// Implement this trait to define the behavior of your CNI plugin for the
-/// ADD, DEL, CHECK, and STATUS operations as specified by the CNI specification.
+/// ADD, DEL, CHECK, STATUS and GC operations as specified by the CNI specification.
 ///
 /// # CNI Operations
 ///
@@ -65,16 +65,6 @@ pub trait Cni {
     /// This method is called when a container is created and needs network connectivity.
     /// It should set up the network interface, assign IP addresses, configure routes, etc.
     ///
-    /// # Arguments
-    ///
-    /// * `args` - Contains all CNI parameters including container ID, network namespace,
-    ///   interface name, and network configuration from stdin.
-    ///
-    /// # Returns
-    ///
-    /// Returns a [`CNIResult`](../types/struct.CNIResult.html) containing the network configuration
-    /// that was created (interfaces, IPs, routes, DNS).
-    ///
     /// # Errors
     ///
     /// Returns an error if the ADD operation fails.
@@ -86,15 +76,8 @@ pub trait Cni {
     /// This method is called when a container is being deleted and should clean up
     /// all network resources that were created during the ADD operation.
     ///
-    /// # Arguments
-    ///
-    /// * `args` - Contains all CNI parameters needed to identify and clean up the network.
-    ///
-    /// # Returns
-    ///
-    /// Returns a [`CNIResult`](../types/struct.CNIResult.html) for API compatibility;
-    /// the spec defines no success output for this operation, so the value is not
-    /// written to stdout.
+    /// The returned [`CNIResult`](../types/struct.CNIResult.html) is for API compatibility;
+    /// the spec defines no success output, so it is never written to stdout.
     ///
     /// # Errors
     ///
@@ -107,15 +90,8 @@ pub trait Cni {
     /// This method verifies that the network configuration is still correct and matches
     /// what was configured during ADD.
     ///
-    /// # Arguments
-    ///
-    /// * `args` - Contains all CNI parameters and the previous result to check against.
-    ///
-    /// # Returns
-    ///
-    /// Returns a [`CNIResult`](../types/struct.CNIResult.html) for API compatibility;
-    /// the spec defines no success output for this operation, so the value is not
-    /// written to stdout.
+    /// The returned [`CNIResult`](../types/struct.CNIResult.html) is for API compatibility;
+    /// the spec defines no success output, so it is never written to stdout.
     ///
     /// # Errors
     ///
@@ -128,14 +104,6 @@ pub trait Cni {
     /// This method checks if the plugin is ready to service ADD requests.
     /// A plugin must return success (exit with zero) if it is ready.
     /// If the plugin knows that it cannot service ADD requests, it must return an error.
-    ///
-    /// # Arguments
-    ///
-    /// * `args` - Contains CNI parameters. For STATUS, only `path` and `config` are typically used.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the plugin is ready to service ADD requests.
     ///
     /// # Errors
     ///
@@ -151,20 +119,12 @@ pub trait Cni {
     ///
     /// The GC command provides a way for runtimes to specify the expected set of
     /// attachments to a network. The plugin should remove any resources related to
-    /// attachments that do not exist in the provided set.
+    /// attachments that do not exist in that set, which arrives in the configuration's
+    /// `valid_attachments` field.
     ///
     /// Resources that may be cleaned up include:
     /// - IPAM reservations
     /// - Firewall rules
-    ///
-    /// # Arguments
-    ///
-    /// * `args` - Contains CNI parameters. For GC, only `path` and `config` are required.
-    ///   The `config.valid_attachments` field contains the list of still-valid attachments.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success.
     ///
     /// # Errors
     ///
@@ -239,10 +199,6 @@ impl Plugin {
     ///
     /// This message is shown when the plugin is called with the VERSION command.
     ///
-    /// # Arguments
-    ///
-    /// * `msg` - A description or version string for your plugin
-    ///
     /// # Example
     ///
     /// ```rust
@@ -264,14 +220,6 @@ impl Plugin {
     /// 2. Routes to ADD/DEL/CHECK/VERSION based on the command
     /// 3. Calls the appropriate method on your `Cni` implementation
     /// 4. Writes the result to stdout in JSON format
-    ///
-    /// # Arguments
-    ///
-    /// * `cni` - A reference to your `Cni` trait implementation
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if any step fails.
     ///
     /// # Errors
     ///
@@ -411,8 +359,6 @@ impl Plugin {
                     .config()?
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
-                // The spec defines no success output for DEL; the returned value is
-                // kept in the trait for API compatibility but is not written out.
                 cni.del(args)?;
                 Ok(String::new())
             }
@@ -427,13 +373,10 @@ impl Plugin {
                     .config()?
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
-                // The spec defines no success output for CHECK; the returned value is
-                // kept in the trait for API compatibility but is not written out.
                 cni.check(args)?;
                 Ok(String::new())
             }
             Cmd::Status => {
-                // STATUS command only requires CNI_PATH (optional) and config from stdin
                 let args = ArgsBuilder::<E, I>::new()
                     .path()?
                     .validate(cmd)?
@@ -441,11 +384,9 @@ impl Plugin {
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
                 cni.status(args)?;
-                // STATUS returns no output on success
                 Ok(String::new())
             }
             Cmd::Gc => {
-                // GC command requires CNI_COMMAND and CNI_PATH, plus config from stdin
                 let args = ArgsBuilder::<E, I>::new()
                     .path()?
                     .validate(cmd)?
@@ -453,7 +394,6 @@ impl Plugin {
                     .build()?;
                 self.info.negotiate((&args).try_into()?, cmd)?;
                 cni.gc(args)?;
-                // GC returns no output on success
                 Ok(String::new())
             }
             Cmd::Version => self.version_json(),
