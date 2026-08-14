@@ -69,21 +69,13 @@ pub mod error {
 /// CNI specification types, plus the plugin-side invocation input.
 ///
 /// The specification types are re-exported from [`rscni_types::types`].
-/// [`Args`](crate::types::Args) and [`ArgsBuilder`](crate::types::ArgsBuilder) are
-/// specific to being invoked as a plugin and are defined by this crate.
+/// [`Args`](crate::types::Args) is specific to being invoked as a plugin and is defined
+/// by this crate.
 pub mod types {
     #[doc(inline)]
     pub use rscni_types::types::*;
 
     pub use crate::args::Args;
-
-    // Hidden, not removed: `rscni::types::ArgsBuilder` was importable in 0.2.x, so the
-    // path must keep resolving through the compat shim. It was never *usable* out there
-    // — its `Env`/`Io` type parameters are private traits, so no external code can
-    // construct or even fully name one (verified with a probe crate) — which is exactly
-    // why it should not be advertised as API either.
-    #[doc(hidden)]
-    pub use crate::args::ArgsBuilder;
 }
 
 /// Plugin version reporting and negotiation.
