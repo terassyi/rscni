@@ -259,8 +259,6 @@ pub struct NetConf {
         skip_serializing_if = "String::is_empty"
     )]
     pub cni_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cni_versions: Option<Vec<String>>,
     /// Network name.
     /// This should be unique across all network configurations on a host (or other administrative domain).
     /// Must start with an alphanumeric character, optionally followed by any combination of one or more alphanumeric characters, underscore, dot (.) or hyphen (-).
@@ -273,17 +271,15 @@ pub struct NetConf {
     pub name: String,
     /// Matches the name of the CNI plugin binary on disk. Must not contain characters disallowed in file paths for the system (e.g. / or \).
     pub r#type: String,
-    /// Either true or false.
-    /// If disableCheck is true, runtimes must not call CHECK for this network configuration list.
-    /// This allows an administrator to prevent `CHECKing` where a combination of plugins is known to return spurious errors.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disable_check: Option<bool>,
     /// A JSON object, consisting of the union of capabilities provided by the plugin and requested by the runtime
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_config: Option<RuntimeConf>,
     /// See <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#deriving-runtimeconfig>.
+    ///
+    /// Boolean-valued because the reference implementation declares `map[string]bool` and
+    /// fails to decode anything else; the specification states no value type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<HashMap<String, Value>>,
+    pub capabilities: Option<HashMap<String, bool>>,
     /// If supported by the plugin, sets up an IP masquerade on the host for this network.
     /// This is necessary if the host will act as a gateway to subnets that are not able to route to the IP assigned to the container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -635,6 +631,10 @@ pub struct PortMapping {
     pub container_port: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Protocol>,
+    /// Keeps keys like `hostIP`, which the reference portmap plugin defines but neither
+    /// the specification nor the reference library does.
+    #[serde(flatten)]
+    pub custom: HashMap<String, Value>,
 }
 
 /// A port-mapping transport protocol. Serializes lowercase, deserializes any casing,
@@ -890,10 +890,8 @@ mod tests {
         // Test serialization
         let conf_with_attachments = NetConf {
             cni_version: "1.1.0".to_string(),
-            cni_versions: None,
             name: "test-network".to_string(),
             r#type: "bridge".to_string(),
-            disable_check: None,
             runtime_config: None,
             capabilities: None,
             ip_masq: None,
@@ -938,10 +936,8 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
-                disable_check: None,
                 runtime_config: None,
                 capabilities: None,
 				ip_masq: None,
@@ -979,14 +975,10 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "test".to_string(),
                 r#type: "myPlugin".to_string(),
-                disable_check: None,
                 runtime_config: None,
-                capabilities: Some(HashMap::from([
-                    ("portMappings".to_string(), serde_json::Value::Bool(true)),
-                ])),
+                capabilities: Some(HashMap::from([("portMappings".to_string(), true)])),
 				ip_masq: None,
                 ipam: None,
                 dns: None,
@@ -1011,23 +1003,20 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "test".to_string(),
                 r#type: "myPlugin".to_string(),
-                disable_check: None,
                 runtime_config: Some(RuntimeConf{
                     port_mappings: vec![
                         PortMapping{
                             host_port: 8080,
                             container_port: 80,
                             protocol: Some(Protocol::Tcp),
+                            custom: HashMap::new(),
                         },
                     ],
                     custom: HashMap::new(),
                 }),
-                capabilities: Some(HashMap::from([
-                    ("portMappings".to_string(), serde_json::Value::Bool(true)),
-                ])),
+                capabilities: Some(HashMap::from([("portMappings".to_string(), true)])),
 				ip_masq: None,
                 ipam: None,
                 dns: None,
@@ -1084,10 +1073,8 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "tuning".to_string(),
-                disable_check: None,
                 runtime_config: Some(RuntimeConf{
                     port_mappings: Vec::new(),
                     custom: HashMap::from([("mac".to_string(), serde_json::Value::String("00:11:22:33:44:66".to_string()))])
@@ -1201,16 +1188,15 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "portmap".to_string(),
-                disable_check: None,
                 runtime_config: Some(RuntimeConf{
                     port_mappings: vec![
                         PortMapping{
                             host_port: 8080,
                             container_port: 80,
                             protocol: Some(Protocol::Tcp),
+                            custom: HashMap::new(),
                         },
                     ],
                     custom: HashMap::new(),
@@ -1322,16 +1308,15 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "portmap".to_string(),
-                disable_check: None,
                 runtime_config: Some(RuntimeConf{
                     port_mappings: vec![
                         PortMapping{
                             host_port: 8080,
                             container_port: 80,
                             protocol: Some(Protocol::Tcp),
+                            custom: HashMap::new(),
                         },
                     ],
                     custom: HashMap::new(),
@@ -1444,10 +1429,8 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "tuning".to_string(),
-                disable_check: None,
                 runtime_config: Some(RuntimeConf{
                     port_mappings: Vec::new(),
                     custom: HashMap::from([("mac".to_string(), serde_json::Value::String("00:11:22:33:44:66".to_string()))])
@@ -1566,10 +1549,8 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
-                disable_check: None,
                 runtime_config: None,
                 capabilities: None,
 				ip_masq: None,
@@ -1697,10 +1678,8 @@ mod tests {
 }"#.to_string(),
             NetConf {
                 cni_version: "1.1.0".to_string(),
-                cni_versions: None,
                 name: "dbnet".to_string(),
                 r#type: "bridge".to_string(),
-                disable_check: None,
                 runtime_config: None,
                 capabilities: None,
 				ip_masq: None,
@@ -2276,6 +2255,7 @@ mod tests {
             host_port: 8080,
             container_port: 80,
             protocol: Some(Protocol::Tcp),
+            custom: HashMap::new(),
         },
         true
     )]
@@ -2284,8 +2264,18 @@ mod tests {
             host_port: 443,
             container_port: 443,
             protocol: None,
+            custom: HashMap::new(),
         },
         false
+    )]
+    #[case(
+        PortMapping {
+            host_port: 8080,
+            container_port: 80,
+            protocol: Some(Protocol::Tcp),
+            custom: HashMap::from([("hostIP".to_string(), json!("127.0.0.1"))]),
+        },
+        true
     )]
     fn test_port_mapping_serialize(
         #[case] port_mapping: PortMapping,
@@ -2403,6 +2393,7 @@ mod tests {
                 host_port: 8080,
                 container_port: 80,
                 protocol: Some(Protocol::Tcp),
+                custom: HashMap::new(),
             }],
             custom: HashMap::new(),
         }
