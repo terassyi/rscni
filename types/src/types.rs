@@ -276,8 +276,8 @@ pub struct NetConf {
     pub runtime_config: Option<RuntimeConf>,
     /// See <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#deriving-runtimeconfig>.
     ///
-    /// A non-boolean value is a decode failure: the specification never states the value
-    /// type, but the reference implementation declares `map[string]bool` and rejects one.
+    /// Boolean-valued because the reference implementation declares `map[string]bool` and
+    /// fails to decode anything else; the specification states no value type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<HashMap<String, bool>>,
     /// If supported by the plugin, sets up an IP masquerade on the host for this network.

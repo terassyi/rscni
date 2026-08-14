@@ -884,6 +884,10 @@ mod tests {
     )]
     #[case::missing_network_name(r#"{"cniVersion":"1.1.0","type":"test"}"#, 7)]
     #[case::invalid_network_name(r#"{"cniVersion":"1.1.0","name":"bad*name","type":"test"}"#, 7)]
+    #[case::non_boolean_capability(
+        r#"{"cniVersion":"1.1.0","name":"test-network","type":"test","capabilities":{"portMappings":"true"}}"#,
+        6
+    )]
     #[tokio::test]
     async fn test_plugin_inner_run_broken_stdin_rejected(#[case] stdin: &str, #[case] code: u32) {
         set_dispatch_env("ADD", "test-container", "/var/run/netns/test", "eth0");
