@@ -2,7 +2,7 @@
 //!
 //! [`Args`] is what a plugin receives on each call: every field except `config`
 //! comes from an environment variable, and `config` is the
-//! [`NetConf`] JSON read from stdin. [`ArgsBuilder`] assembles it by reading
+//! [`NetConf`] JSON read from stdin. [`Args::from_env`] assembles it by reading
 //! each source in turn.
 //!
 //! These types live here rather than in `rscni-types` because they are specific
@@ -46,6 +46,23 @@ pub struct Args {
 }
 
 impl Args {
+    /// Reads each source in the order the reference implementation reads them, so the
+    /// first unusable value is the one reported.
+    pub(crate) fn from_env<E: Env, I: Io>(cmd: Cmd) -> Result<Self, Error> {
+        let builder = ArgsBuilder::<E, I>::new();
+        match cmd {
+            Cmd::Add | Cmd::Del | Cmd::Check => {
+                builder.container_id()?.netns()?.ifname()?.args()?.path()?
+            }
+            Cmd::Status | Cmd::Gc => builder.path()?,
+            // VERSION is answered before dispatch gets here, so it never arrives.
+            Cmd::Version => builder,
+        }
+        .validate(cmd)?
+        .config()?
+        .build()
+    }
+
     /// Returns the container ID if present.
     #[must_use]
     pub const fn container_id(&self) -> Option<&ContainerId> {
@@ -84,13 +101,11 @@ impl Args {
     }
 }
 
-/// Builder for constructing `Args` instances.
 #[derive(Debug)]
-pub struct ArgsBuilder<E: Env, I: Io> {
+struct ArgsBuilder<E: Env, I: Io> {
     container_id: Option<ContainerId>,
     netns: Option<PathBuf>,
     ifname: Option<InterfaceName>,
-    #[allow(clippy::struct_field_names)]
     args: Option<String>,
     path: Vec<PathBuf>,
     config: Option<NetConf>,
@@ -99,9 +114,7 @@ pub struct ArgsBuilder<E: Env, I: Io> {
 }
 
 impl<E: Env, I: Io> ArgsBuilder<E, I> {
-    /// Creates a new `ArgsBuilder`.
-    #[must_use]
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             container_id: None,
             netns: None,
@@ -114,64 +127,34 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         }
     }
 
-    /// Reads container ID from the `CNI_CONTAINERID` environment variable.
-    ///
-    /// An unset or empty variable leaves the field `None`; whether that is acceptable
-    /// depends on the command and is decided by [`Self::validate`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable cannot be read, or holds a value
-    /// [`ContainerId`] rejects.
     // Converted here rather than by `E::get::<ContainerId>`: that re-wraps the failure
     // through its `Display`, folding a whole rendered error into the details.
-    pub fn container_id(mut self) -> Result<Self, Error> {
+    fn container_id(mut self) -> Result<Self, Error> {
         self.container_id = E::get::<String>(CNI_CONTAINERID)?
             .map(ContainerId::try_from)
             .transpose()?;
         Ok(self)
     }
 
-    /// Reads network namespace from the `CNI_NETNS` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn netns(mut self) -> Result<Self, Error> {
+    fn netns(mut self) -> Result<Self, Error> {
         // `PathBuf: FromStr` is infallible, so no decode failure to handle here.
         self.netns = E::get::<String>(CNI_NETNS)?.map(PathBuf::from);
         Ok(self)
     }
 
-    /// Reads interface name from the `CNI_IFNAME` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable cannot be read, or holds a value
-    /// [`InterfaceName`] rejects.
-    pub fn ifname(mut self) -> Result<Self, Error> {
+    fn ifname(mut self) -> Result<Self, Error> {
         self.ifname = E::get::<String>(CNI_IFNAME)?
             .map(InterfaceName::try_from)
             .transpose()?;
         Ok(self)
     }
 
-    /// Reads extra arguments from the `CNI_ARGS` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn args(mut self) -> Result<Self, Error> {
+    fn args(mut self) -> Result<Self, Error> {
         self.args = E::get::<String>(CNI_ARGS)?;
         Ok(self)
     }
 
-    /// Reads CNI plugin paths from the `CNI_PATH` environment variable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the environment variable is set but cannot be read properly.
-    pub fn path(mut self) -> Result<Self, Error> {
+    fn path(mut self) -> Result<Self, Error> {
         // The separator is OS-specific (':' on Unix, ';' on Windows), which is exactly
         // what `env::split_paths` implements; on Unix it matches a plain ':' split
         // byte for byte, empty segments included.
@@ -181,14 +164,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         Ok(self)
     }
 
-    /// Reads network configuration from stdin.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Failed to read from stdin
-    /// - Failed to parse JSON configuration
-    pub fn config(mut self) -> Result<Self, Error> {
+    fn config(mut self) -> Result<Self, Error> {
         let mut buf = String::new();
         I::io_in()
             .read_to_string(&mut buf)
@@ -216,7 +192,7 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
     /// # Errors
     ///
     /// Returns an error naming every variable the command requires and lacks.
-    pub(crate) fn validate(self, cmd: Cmd) -> Result<Self, Error> {
+    fn validate(self, cmd: Cmd) -> Result<Self, Error> {
         let mut missing = Vec::new();
         match cmd {
             Cmd::Add | Cmd::Check | Cmd::Del => {
@@ -242,13 +218,9 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
         }
     }
 
-    /// Builds the `Args` instance.
-    ///
-    /// # Errors
-    ///
     /// Returns [`Error::InvalidNetworkConfig`] (error code 7) if the network
     /// configuration is absent, or carries no usable network name.
-    pub fn build(self) -> Result<Args, Error> {
+    fn build(self) -> Result<Args, Error> {
         // A stdin of literal JSON `null` deserializes into no configuration, not an error.
         let config = self.config.ok_or_else(|| {
             Error::InvalidNetworkConfig("network configuration is required on stdin".to_string())
@@ -262,11 +234,5 @@ impl<E: Env, I: Io> ArgsBuilder<E, I> {
             path: self.path,
             config,
         })
-    }
-}
-
-impl<E: Env, I: Io> Default for ArgsBuilder<E, I> {
-    fn default() -> Self {
-        Self::new()
     }
 }

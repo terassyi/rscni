@@ -19,7 +19,7 @@ use rscni_types::{
 };
 
 use crate::{
-    args::{Args, ArgsBuilder},
+    args::Args,
     util::{Env, Io, OsEnv, StdIo, result_json},
 };
 
@@ -322,15 +322,7 @@ impl Plugin {
 
         match cmd {
             Cmd::Add => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 // The spec requires the ADD result to carry a `cniVersion` key echoing
                 // the version supplied on input — and for versions before 1.0.0, to
                 // use their legacy result layout. Refused before the callback runs, so
@@ -346,49 +338,25 @@ impl Plugin {
                 result_json(cni_version, res)
             }
             Cmd::Del => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.del(args).await?;
                 Ok(String::new())
             }
             Cmd::Check => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.check(args).await?;
                 Ok(String::new())
             }
             Cmd::Status => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.status(args).await?;
                 Ok(String::new())
             }
             Cmd::Gc => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.gc(args).await?;
                 Ok(String::new())
@@ -714,8 +682,8 @@ mod tests {
     }
 
     // `ArgsBuilder::validate`'s doc carries the spec's full required/optional
-    // environment matrix; these tables drive it through dispatch, where the builder
-    // wiring lives. Every violation is error code 4 naming the missing variable.
+    // environment matrix; these tables drive it through dispatch. Every violation is
+    // error code 4 naming the missing variable.
     #[cfg(feature = "async")]
     #[rstest]
     #[case::add_without_netns("ADD", "c1", "", "eth0", "CNI_NETNS")]

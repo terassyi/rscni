@@ -7,7 +7,7 @@ use rscni_types::{
 };
 
 use crate::{
-    args::{Args, ArgsBuilder},
+    args::Args,
     util::{Env, Io, OsEnv, StdIo, result_json},
 };
 
@@ -325,15 +325,7 @@ impl Plugin {
 
         match cmd {
             Cmd::Add => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 // The spec requires the ADD result to carry a `cniVersion` key echoing
                 // the version supplied on input — and for versions before 1.0.0, to
                 // use their legacy result layout. Refused before the callback runs, so
@@ -349,49 +341,25 @@ impl Plugin {
                 result_json(cni_version, res)
             }
             Cmd::Del => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.del(args)?;
                 Ok(String::new())
             }
             Cmd::Check => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.check(args)?;
                 Ok(String::new())
             }
             Cmd::Status => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.status(args)?;
                 Ok(String::new())
             }
             Cmd::Gc => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.gc(args)?;
                 Ok(String::new())
@@ -516,24 +484,11 @@ mod tests {
     const DEFAULT_ROUTE: IpNet = IpNet::V4(Ipv4Net::new_assert(Ipv4Addr::UNSPECIFIED, 0));
     const GATEWAY: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 1, 0, 1));
 
-    // The `Args` the last dispatched callback received, for the tests that assert what
-    // reached the plugin rather than what it returned.
-    thread_local! {
-        static SEEN: RefCell<Option<Args>> = const { RefCell::new(None) };
-    }
-
     // Mock Cni implementation
     struct MockCni;
 
-    impl MockCni {
-        fn capture(args: Args) {
-            SEEN.with(|s| *s.borrow_mut() = Some(args));
-        }
-    }
-
     impl Cni for MockCni {
-        fn add(&self, args: Args) -> Result<CNIResult, Error> {
-            Self::capture(args);
+        fn add(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult {
                 interfaces: vec![Interface {
                     name: "eth0".to_string(),
@@ -566,23 +521,19 @@ mod tests {
             })
         }
 
-        fn del(&self, args: Args) -> Result<CNIResult, Error> {
-            Self::capture(args);
+        fn del(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult::default())
         }
 
-        fn check(&self, args: Args) -> Result<CNIResult, Error> {
-            Self::capture(args);
+        fn check(&self, _args: Args) -> Result<CNIResult, Error> {
             Ok(CNIResult::default())
         }
 
-        fn status(&self, args: Args) -> Result<(), Error> {
-            Self::capture(args);
+        fn status(&self, _args: Args) -> Result<(), Error> {
             Ok(())
         }
 
-        fn gc(&self, args: Args) -> Result<(), Error> {
-            Self::capture(args);
+        fn gc(&self, _args: Args) -> Result<(), Error> {
             Ok(())
         }
     }
@@ -683,7 +634,6 @@ mod tests {
         MOCK_ENV.with(|env| env.borrow_mut().clear());
         MOCK_OUTPUT.with(|out| out.borrow_mut().clear());
         MOCK_OUTPUT_BROKEN.with(|broken| broken.set(false));
-        SEEN.with(|seen| *seen.borrow_mut() = None);
         let vars = [
             ("CNI_COMMAND", command),
             ("CNI_CONTAINERID", container_id),
@@ -716,8 +666,8 @@ mod tests {
     }
 
     // `ArgsBuilder::validate`'s doc carries the spec's full required/optional
-    // environment matrix; these tables drive it through dispatch, where the builder
-    // wiring lives. Every violation is error code 4 naming the missing variable.
+    // environment matrix; these tables drive it through dispatch. Every violation is
+    // error code 4 naming the missing variable.
     #[rstest]
     #[case::add_without_netns("ADD", "c1", "", "eth0", "CNI_NETNS")]
     #[case::add_without_container_id("ADD", "", "/ns", "eth0", "CNI_CONTAINERID")]
@@ -831,37 +781,31 @@ mod tests {
         assert_eq!(u32::from(&err), code, "got: {err:?}");
     }
 
-    // Which environment each command hands to the `Cni` implementation. Every variable is
-    // set for every case, so a reader dropped from the per-command selection shows up here
-    // as an absent field — `validate` cannot catch that for a variable the command treats
-    // as optional.
+    // Every variable is set for every case, so a reader dropped from the per-command
+    // selection shows up as an absent field — `validate` cannot catch that for a variable
+    // the command treats as optional.
     #[rstest]
-    #[case::add("ADD", true)]
-    #[case::del("DEL", true)]
-    #[case::check("CHECK", true)]
-    #[case::status("STATUS", false)]
-    #[case::gc("GC", false)]
-    fn test_dispatch_populates_the_env_each_command_reads(
-        #[case] command: &str,
-        #[case] attaches: bool,
+    #[case::add(Cmd::Add, true)]
+    #[case::del(Cmd::Del, true)]
+    #[case::check(Cmd::Check, true)]
+    #[case::status(Cmd::Status, false)]
+    #[case::gc(Cmd::Gc, false)]
+    fn test_from_env_reads_the_parameters_each_command_lists(
+        #[case] cmd: Cmd,
+        #[case] is_attachment: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        set_dispatch_env(command, "test-container", "/var/run/netns/test", "eth0");
+        set_dispatch_env(cmd.into(), "test-container", "/var/run/netns/test", "eth0");
         set_mock_env("CNI_ARGS", "K=V");
         set_mock_env("CNI_PATH", "/opt/cni/bin");
 
-        Plugin::default()
-            .inner_run::<MockCni, MockEnv, MockIo>(&MockCni)
-            .map_err(|e| format!("{command} must succeed: {e}"))?;
-
-        let seen = SEEN
-            .with(|s| s.borrow_mut().take())
-            .ok_or_else(|| format!("{command} never reached the callback"))?;
-        assert_eq!(seen.container_id().is_some(), attaches, "container_id");
-        assert_eq!(seen.netns().is_some(), attaches, "netns");
-        assert_eq!(seen.ifname().is_some(), attaches, "ifname");
-        assert_eq!(seen.args().is_some(), attaches, "args");
+        let args = Args::from_env::<MockEnv, MockIo>(cmd)
+            .map_err(|e| format!("{cmd:?} must succeed: {e}"))?;
+        assert_eq!(args.container_id().is_some(), is_attachment, "container_id");
+        assert_eq!(args.netns().is_some(), is_attachment, "netns");
+        assert_eq!(args.ifname().is_some(), is_attachment, "ifname");
+        assert_eq!(args.args().is_some(), is_attachment, "args");
         // Every command reads CNI_PATH.
-        assert_eq!(seen.path(), [PathBuf::from("/opt/cni/bin")], "path");
+        assert_eq!(args.path(), [PathBuf::from("/opt/cni/bin")], "path");
         Ok(())
     }
 
