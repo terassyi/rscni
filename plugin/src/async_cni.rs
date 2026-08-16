@@ -845,7 +845,8 @@ mod tests {
     // Version negotiation rejections, all error code 1. The floor cases use versions
     // from the default plugin's supported list, so what must reject them is the
     // operation floor (CHECK exists only from 0.4.0, GC and STATUS from 1.1.0), not
-    // the supported-version membership check; the membership case is the reverse.
+    // the supported-version membership check; the membership cases are the reverse,
+    // and ADD and DEL have no floor, so membership is their only gate.
     #[cfg(feature = "async")]
     #[rstest]
     #[case::check_below_floor(
@@ -861,9 +862,15 @@ mod tests {
         "1.0.0",
         "config version does not allow STATUS"
     )]
-    #[case::unsupported_version(
+    #[case::add_unsupported_version(
         Plugin::new(SpecVersion::new(1, 0, 0), vec![SpecVersion::new(1, 0, 0)]),
         "ADD",
+        "0.4.0",
+        r#"config is "0.4.0""#
+    )]
+    #[case::del_unsupported_version(
+        Plugin::new(SpecVersion::new(1, 0, 0), vec![SpecVersion::new(1, 0, 0)]),
+        "DEL",
         "0.4.0",
         r#"config is "0.4.0""#
     )]
