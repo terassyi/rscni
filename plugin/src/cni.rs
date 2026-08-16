@@ -7,7 +7,7 @@ use rscni_types::{
 };
 
 use crate::{
-    args::{Args, ArgsBuilder},
+    args::Args,
     util::{Env, Io, OsEnv, StdIo, result_json},
 };
 
@@ -325,15 +325,7 @@ impl Plugin {
 
         match cmd {
             Cmd::Add => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 // The spec requires the ADD result to carry a `cniVersion` key echoing
                 // the version supplied on input — and for versions before 1.0.0, to
                 // use their legacy result layout. Refused before the callback runs, so
@@ -349,49 +341,25 @@ impl Plugin {
                 result_json(cni_version, res)
             }
             Cmd::Del => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.del(args)?;
                 Ok(String::new())
             }
             Cmd::Check => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .container_id()?
-                    .netns()?
-                    .ifname()?
-                    .args()?
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.check(args)?;
                 Ok(String::new())
             }
             Cmd::Status => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.status(args)?;
                 Ok(String::new())
             }
             Cmd::Gc => {
-                let args = ArgsBuilder::<E, I>::new()
-                    .path()?
-                    .validate(cmd)?
-                    .config()?
-                    .build()?;
+                let args = Args::from_env::<E, I>(cmd)?;
                 self.info.negotiate(args.config(), cmd)?;
                 cni.gc(args)?;
                 Ok(String::new())
@@ -411,6 +379,7 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Cursor, Read, Write};
     use std::net::{IpAddr, Ipv4Addr};
+    use std::path::PathBuf;
     use std::str::FromStr;
 
     // Thread-local storage for mock environment variables
@@ -697,8 +666,8 @@ mod tests {
     }
 
     // `ArgsBuilder::validate`'s doc carries the spec's full required/optional
-    // environment matrix; these tables drive it through dispatch, where the builder
-    // wiring lives. Every violation is error code 4 naming the missing variable.
+    // environment matrix; these tables drive it through dispatch. Every violation is
+    // error code 4 naming the missing variable.
     #[rstest]
     #[case::add_without_netns("ADD", "c1", "", "eth0", "CNI_NETNS")]
     #[case::add_without_container_id("ADD", "", "/ns", "eth0", "CNI_CONTAINERID")]
@@ -810,6 +779,34 @@ mod tests {
             panic!("ADD must reject this stdin");
         };
         assert_eq!(u32::from(&err), code, "got: {err:?}");
+    }
+
+    // Every variable is set for every case, so a reader dropped from the per-command
+    // selection shows up as an absent field — `validate` cannot catch that for a variable
+    // the command treats as optional.
+    #[rstest]
+    #[case::add(Cmd::Add, true)]
+    #[case::del(Cmd::Del, true)]
+    #[case::check(Cmd::Check, true)]
+    #[case::status(Cmd::Status, false)]
+    #[case::gc(Cmd::Gc, false)]
+    fn test_from_env_reads_the_parameters_each_command_lists(
+        #[case] cmd: Cmd,
+        #[case] is_attachment: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        set_dispatch_env(cmd.into(), "test-container", "/var/run/netns/test", "eth0");
+        set_mock_env("CNI_ARGS", "K=V");
+        set_mock_env("CNI_PATH", "/opt/cni/bin");
+
+        let args = Args::from_env::<MockEnv, MockIo>(cmd)
+            .map_err(|e| format!("{cmd:?} must succeed: {e}"))?;
+        assert_eq!(args.container_id().is_some(), is_attachment, "container_id");
+        assert_eq!(args.netns().is_some(), is_attachment, "netns");
+        assert_eq!(args.ifname().is_some(), is_attachment, "ifname");
+        assert_eq!(args.args().is_some(), is_attachment, "args");
+        // Every command reads CNI_PATH.
+        assert_eq!(args.path(), [PathBuf::from("/opt/cni/bin")], "path");
+        Ok(())
     }
 
     // Version negotiation rejections, all error code 1. The floor cases use versions
