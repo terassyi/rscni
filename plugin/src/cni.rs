@@ -37,14 +37,14 @@ use crate::{
 ///         Ok(CNIResult::default())
 ///     }
 ///
-///     fn del(&self, args: Args) -> Result<CNIResult, Error> {
+///     fn del(&self, args: Args) -> Result<(), Error> {
 ///         // Network cleanup logic
-///         Ok(CNIResult::default())
+///         Ok(())
 ///     }
 ///
-///     fn check(&self, args: Args) -> Result<CNIResult, Error> {
+///     fn check(&self, args: Args) -> Result<(), Error> {
 ///         // Network verification logic
-///         Ok(CNIResult::default())
+///         Ok(())
 ///     }
 ///
 ///     fn status(&self, _args: Args) -> Result<(), Error> {
@@ -76,13 +76,10 @@ pub trait Cni {
     /// This method is called when a container is being deleted and should clean up
     /// all network resources that were created during the ADD operation.
     ///
-    /// The returned [`CNIResult`](../types/struct.CNIResult.html) is for API compatibility;
-    /// the spec defines no success output, so it is never written to stdout.
-    ///
     /// # Errors
     ///
     /// Returns an error if the DEL operation fails.
-    fn del(&self, args: Args) -> Result<CNIResult, Error>;
+    fn del(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the CHECK command for the CNI plugin.
     /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#check-check-containers-networking-is-as-expected>
@@ -90,13 +87,10 @@ pub trait Cni {
     /// This method verifies that the network configuration is still correct and matches
     /// what was configured during ADD.
     ///
-    /// The returned [`CNIResult`](../types/struct.CNIResult.html) is for API compatibility;
-    /// the spec defines no success output, so it is never written to stdout.
-    ///
     /// # Errors
     ///
     /// Returns an error if the CHECK operation fails.
-    fn check(&self, args: Args) -> Result<CNIResult, Error>;
+    fn check(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the STATUS command for the CNI plugin.
     /// <https://www.cni.dev/docs/spec/#status-check-plugin-status>
@@ -151,8 +145,8 @@ pub trait Cni {
 /// # struct MyPlugin;
 /// # impl Cni for MyPlugin {
 /// #     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-/// #     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-/// #     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+/// #     fn del(&self, args: Args) -> Result<(), Error> { Ok(()) }
+/// #     fn check(&self, args: Args) -> Result<(), Error> { Ok(()) }
 /// #     fn status(&self, _args: Args) -> Result<(), Error> { Ok(()) }
 /// #     fn gc(&self, _args: Args) -> Result<(), Error> { Ok(()) }
 /// # }
@@ -238,8 +232,8 @@ impl Plugin {
     /// # struct MyPlugin;
     /// # impl Cni for MyPlugin {
     /// #     fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-    /// #     fn del(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
-    /// #     fn check(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     fn del(&self, args: Args) -> Result<(), Error> { Ok(()) }
+    /// #     fn check(&self, args: Args) -> Result<(), Error> { Ok(()) }
     /// #     fn status(&self, _args: Args) -> Result<(), Error> { Ok(()) }
     /// #     fn gc(&self, _args: Args) -> Result<(), Error> { Ok(()) }
     /// # }
@@ -521,12 +515,12 @@ mod tests {
             })
         }
 
-        fn del(&self, _args: Args) -> Result<CNIResult, Error> {
-            Ok(CNIResult::default())
+        fn del(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
         }
 
-        fn check(&self, _args: Args) -> Result<CNIResult, Error> {
-            Ok(CNIResult::default())
+        fn check(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
         }
 
         fn status(&self, _args: Args) -> Result<(), Error> {

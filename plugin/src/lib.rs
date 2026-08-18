@@ -32,14 +32,14 @@
 //! #         Ok(CNIResult::default())
 //! #     }
 //! #
-//! #     fn del(&self, args: Args) -> Result<CNIResult, Error> {
+//! #     fn del(&self, args: Args) -> Result<(), Error> {
 //! #         // Implement network teardown logic
-//! #         Ok(CNIResult::default())
+//! #         Ok(())
 //! #     }
 //! #
-//! #     fn check(&self, args: Args) -> Result<CNIResult, Error> {
+//! #     fn check(&self, args: Args) -> Result<(), Error> {
 //! #         // Implement network check logic
-//! #         Ok(CNIResult::default())
+//! #         Ok(())
 //! #     }
 //! #
 //! #     fn status(&self, _args: Args) -> Result<(), Error> {

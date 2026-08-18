@@ -51,14 +51,14 @@ use crate::{
 ///         Ok(CNIResult::default())
 ///     }
 ///
-///     async fn del(&self, args: Args) -> Result<CNIResult, Error> {
+///     async fn del(&self, args: Args) -> Result<(), Error> {
 ///         // Network cleanup logic
-///         Ok(CNIResult::default())
+///         Ok(())
 ///     }
 ///
-///     async fn check(&self, args: Args) -> Result<CNIResult, Error> {
+///     async fn check(&self, args: Args) -> Result<(), Error> {
 ///         // Network verification logic
-///         Ok(CNIResult::default())
+///         Ok(())
 ///     }
 ///
 ///     async fn status(&self, _args: Args) -> Result<(), Error> {
@@ -91,13 +91,10 @@ pub trait Cni {
     /// This method is called when a container is being deleted and should clean up
     /// all network resources that were created during the ADD operation.
     ///
-    /// The returned [`CNIResult`](../types/struct.CNIResult.html) is for API compatibility;
-    /// the spec defines no success output, so it is never written to stdout.
-    ///
     /// # Errors
     ///
     /// Returns an error if the DEL operation fails.
-    async fn del(&self, args: Args) -> Result<CNIResult, Error>;
+    async fn del(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the CHECK command for the CNI plugin.
     /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#check-check-containers-networking-is-as-expected>
@@ -105,13 +102,10 @@ pub trait Cni {
     /// This method verifies that the network configuration is still correct and matches
     /// what was configured during ADD.
     ///
-    /// The returned [`CNIResult`](../types/struct.CNIResult.html) is for API compatibility;
-    /// the spec defines no success output, so it is never written to stdout.
-    ///
     /// # Errors
     ///
     /// Returns an error if the CHECK operation fails.
-    async fn check(&self, args: Args) -> Result<CNIResult, Error>;
+    async fn check(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the STATUS command for the CNI plugin.
     /// <https://www.cni.dev/docs/spec/#status-check-plugin-status>
@@ -217,24 +211,19 @@ impl Plugin {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use async_trait::async_trait;
-    /// use rscni_plugin::{async_cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
-    ///
-    /// struct MyPlugin;
-    ///
-    /// #[async_trait]
-    /// impl Cni for MyPlugin {
-    ///     async fn add(&self, args: Args) -> Result<CNIResult, Error> {
-    ///         Ok(CNIResult::default())
-    ///     }
-    ///     async fn del(&self, args: Args) -> Result<CNIResult, Error> {
-    ///         Ok(CNIResult::default())
-    ///     }
-    ///     async fn check(&self, args: Args) -> Result<CNIResult, Error> {
-    ///         Ok(CNIResult::default())
-    ///     }
-    /// }
-    ///
+    /// # use async_trait::async_trait;
+    /// # use rscni_plugin::{async_cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
+    /// #
+    /// # struct MyPlugin;
+    /// # #[async_trait]
+    /// # impl Cni for MyPlugin {
+    /// #     async fn add(&self, args: Args) -> Result<CNIResult, Error> { Ok(CNIResult::default()) }
+    /// #     async fn del(&self, args: Args) -> Result<(), Error> { Ok(()) }
+    /// #     async fn check(&self, args: Args) -> Result<(), Error> { Ok(()) }
+    /// #     async fn status(&self, _args: Args) -> Result<(), Error> { Ok(()) }
+    /// #     async fn gc(&self, _args: Args) -> Result<(), Error> { Ok(()) }
+    /// # }
+    /// #
     /// #[tokio::main]
     /// async fn main() {
     ///     let plugin = Plugin::default();
@@ -518,12 +507,12 @@ mod tests {
             })
         }
 
-        async fn del(&self, _args: Args) -> Result<CNIResult, Error> {
-            Ok(CNIResult::default())
+        async fn del(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
         }
 
-        async fn check(&self, _args: Args) -> Result<CNIResult, Error> {
-            Ok(CNIResult::default())
+        async fn check(&self, _args: Args) -> Result<(), Error> {
+            Ok(())
         }
 
         async fn status(&self, _args: Args) -> Result<(), Error> {
