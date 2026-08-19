@@ -46,11 +46,11 @@ impl Cni for DebugConf {
         add(args).await
     }
 
-    async fn del(&self, args: Args) -> Result<CNIResult, Error> {
+    async fn del(&self, args: Args) -> Result<(), Error> {
         del(args).await
     }
 
-    async fn check(&self, args: Args) -> Result<CNIResult, Error> {
+    async fn check(&self, args: Args) -> Result<(), Error> {
         check(args).await
     }
 
@@ -107,18 +107,14 @@ async fn add(args: Args) -> Result<CNIResult, Error> {
         .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-    Ok(match &net_conf.prev_result {
-        Some(prev) => prev.clone(),
-        None => CNIResult::default(),
-    })
+    Ok(net_conf.prev_result.clone().unwrap_or_default())
 }
 
-async fn del(args: Args) -> Result<CNIResult, Error> {
+async fn del(args: Args) -> Result<(), Error> {
     let cmd = "Del";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args.config();
-    let debug_conf = DebugConf::parse(&net_conf.custom)?;
+    let debug_conf = DebugConf::parse(&args.config().custom)?;
 
     let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
     let mut file = debug_conf.open_file(container_id, cmd).await?;
@@ -126,18 +122,14 @@ async fn del(args: Args) -> Result<CNIResult, Error> {
         .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-    Ok(match &net_conf.prev_result {
-        Some(prev) => prev.clone(),
-        None => CNIResult::default(),
-    })
+    Ok(())
 }
 
-async fn check(args: Args) -> Result<CNIResult, Error> {
+async fn check(args: Args) -> Result<(), Error> {
     let cmd = "Check";
     let cni_output = output_args(cmd, &args)?;
 
-    let net_conf = args.config();
-    let debug_conf = DebugConf::parse(&net_conf.custom)?;
+    let debug_conf = DebugConf::parse(&args.config().custom)?;
 
     let container_id = args.container_id().map_or("unknown", AsRef::as_ref);
     let mut file = debug_conf.open_file(container_id, cmd).await?;
@@ -145,10 +137,7 @@ async fn check(args: Args) -> Result<CNIResult, Error> {
         .await
         .map_err(|e| Error::IOFailure(e.to_string()))?;
 
-    Ok(match &net_conf.prev_result {
-        Some(prev) => prev.clone(),
-        None => CNIResult::default(),
-    })
+    Ok(())
 }
 
 fn output_args(cmd: &str, args: &Args) -> Result<String, Error> {

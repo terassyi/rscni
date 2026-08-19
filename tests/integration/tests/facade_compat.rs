@@ -42,12 +42,12 @@ impl Cni for SyncPlugin {
         Ok(config.prev_result.clone().unwrap_or_default())
     }
 
-    fn del(&self, _args: Args) -> Result<CNIResult, Error> {
-        Ok(CNIResult::default())
+    fn del(&self, _args: Args) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn check(&self, _args: Args) -> Result<CNIResult, Error> {
-        Ok(CNIResult::default())
+    fn check(&self, _args: Args) -> Result<(), Error> {
+        Ok(())
     }
 
     fn status(&self, _args: Args) -> Result<(), Error> {
@@ -117,12 +117,12 @@ impl AsyncCni for AsyncTestPlugin {
         Ok(CNIResult::default())
     }
 
-    async fn del(&self, _args: Args) -> Result<CNIResult, Error> {
-        Ok(CNIResult::default())
+    async fn del(&self, _args: Args) -> Result<(), Error> {
+        Ok(())
     }
 
-    async fn check(&self, _args: Args) -> Result<CNIResult, Error> {
-        Ok(CNIResult::default())
+    async fn check(&self, _args: Args) -> Result<(), Error> {
+        Ok(())
     }
 
     async fn status(&self, _args: Args) -> Result<(), Error> {

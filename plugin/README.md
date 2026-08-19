@@ -57,14 +57,14 @@ impl Cni for MyCniPlugin {
         Ok(CNIResult::default())
     }
 
-    fn del(&self, args: Args) -> Result<CNIResult, Error> {
+    fn del(&self, args: Args) -> Result<(), Error> {
         // Implement network teardown logic
-        Ok(CNIResult::default())
+        Ok(())
     }
 
-    fn check(&self, args: Args) -> Result<CNIResult, Error> {
+    fn check(&self, args: Args) -> Result<(), Error> {
         // Implement network validation logic
-        Ok(CNIResult::default())
+        Ok(())
     }
 
     fn status(&self, args: Args) -> Result<(), Error> {
@@ -105,14 +105,14 @@ impl Cni for MyAsyncCniPlugin {
         Ok(CNIResult::default())
     }
 
-    async fn del(&self, args: Args) -> Result<CNIResult, Error> {
+    async fn del(&self, args: Args) -> Result<(), Error> {
         // Async network teardown
-        Ok(CNIResult::default())
+        Ok(())
     }
 
-    async fn check(&self, args: Args) -> Result<CNIResult, Error> {
+    async fn check(&self, args: Args) -> Result<(), Error> {
         // Async network validation
-        Ok(CNIResult::default())
+        Ok(())
     }
 
     async fn status(&self, args: Args) -> Result<(), Error> {
