@@ -38,7 +38,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust,no_run
 /// use async_trait::async_trait;
 /// use rscni_plugin::{async_cni::Cni, error::Error, types::{Args, CNIResult}};
 ///
@@ -162,7 +162,7 @@ impl Plugin {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use rscni_plugin::{async_cni::Plugin, version::SpecVersion};
     ///
     /// let plugin = Plugin::new(
@@ -182,7 +182,7 @@ impl Plugin {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use rscni_plugin::async_cni::Plugin;
     ///
     /// let plugin = Plugin::default()
@@ -210,7 +210,7 @@ impl Plugin {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// # use async_trait::async_trait;
     /// # use rscni_plugin::{async_cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
     /// #
