@@ -38,7 +38,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust,no_run
 /// use async_trait::async_trait;
 /// use rscni_plugin::{async_cni::Cni, error::Error, types::{Args, CNIResult}};
 ///
@@ -162,7 +162,7 @@ impl Plugin {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use rscni_plugin::{async_cni::Plugin, version::SpecVersion};
     ///
     /// let plugin = Plugin::new(
@@ -182,7 +182,7 @@ impl Plugin {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use rscni_plugin::async_cni::Plugin;
     ///
     /// let plugin = Plugin::default()
@@ -210,7 +210,7 @@ impl Plugin {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// # use async_trait::async_trait;
     /// # use rscni_plugin::{async_cni::{Cni, Plugin}, error::Error, types::{Args, CNIResult}};
     /// #
@@ -679,10 +679,10 @@ mod tests {
     #[case::add_without_container_id("ADD", "", "/ns", "eth0", "CNI_CONTAINERID")]
     #[case::del_without_container_id("DEL", "", "", "eth0", "CNI_CONTAINERID")]
     #[case::del_without_ifname("DEL", "c1", "", "", "CNI_IFNAME")]
-    #[case::check_without_container_id("CHECK", "", "/ns", "eth0", "CNI_CONTAINERID")]
     #[case::gc_without_path("GC", "", "", "", "CNI_PATH")]
     // Missing variables are reported together, in the reference's wording and order.
     #[case::add_bare("ADD", "", "", "", "[CNI_CONTAINERID,CNI_NETNS,CNI_IFNAME]")]
+    #[case::check_bare("CHECK", "", "", "", "[CNI_CONTAINERID,CNI_NETNS,CNI_IFNAME]")]
     // Present values are held to the spec's character rules.
     #[case::invalid_container_id(
         "ADD",
