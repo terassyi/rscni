@@ -28,7 +28,8 @@ rscni-types = "0.1"
 ## Contents
 
 - `types` — network configuration (`NetConf`, `NetConfList`), results (`CNIResult`, `Interface`, `IpConfig`, `Route`, `Dns`), `Cmd`, and the `CNI_*` environment variable names
-- `error` — `Error`, covering the specification's error codes 1–7, 11, 50 and 51
+- `legacy` — the result layout of specification versions 0.3.0 through 0.4.0
+- `error` — `Error`, covering the specification's error codes and plugin-defined ones
 - `version` — `PluginInfo` and version negotiation
 
 `NetConf` keeps unrecognized fields in a flattened `custom: HashMap<String, Value>`, so plugin-specific configuration passes through without this crate knowing about it.

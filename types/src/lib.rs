@@ -23,7 +23,8 @@
 //! - [`types`] — network configuration, results, and the `CNI_*` environment variable
 //!   names
 //! - [`legacy`] — the result layout of specification versions 0.3.0 through 0.4.0
-//! - [`error`] — [`Error`](error::Error), covering the specification's error codes
+//! - [`error`] — [`Error`](error::Error), covering the specification's error codes and
+//!   plugin-defined ones
 //! - [`version`] — [`PluginInfo`](version::PluginInfo) and version negotiation
 //!
 //! # Supported specification versions

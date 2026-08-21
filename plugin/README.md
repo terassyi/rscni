@@ -139,7 +139,7 @@ async fn main() {
 
 - `types::Args` - CNI command arguments (container ID, netns, ifname, etc.)
 - `types::NetConf` - Network configuration from stdin
-- `types::CNIResult` - Plugin execution result with IPs, routes, DNS
+- `types::CNIResult` - ADD result: interfaces, IPs, routes, DNS
 - `version::PluginInfo` - Plugin version information
 
 Everything except `Args` is re-exported from [`rscni-types`](https://crates.io/crates/rscni-types), so `rscni_plugin::types::NetConf` and `rscni_types::types::NetConf` are the same type. `Args` is specific to being invoked as a plugin, which is why it lives here.

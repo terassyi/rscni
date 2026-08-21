@@ -7,7 +7,7 @@
 //!
 //! - [`NetConf`] - Network configuration passed to the plugin
 //! - [`NetConfList`] - A chain of network configurations (`.conflist`)
-//! - [`CNIResult`] - Result returned by ADD/DEL/CHECK operations
+//! - [`CNIResult`] - The ADD success result
 //! - [`Interface`], [`IpConfig`], [`Route`] - Components of the CNI result
 //! - [`Dns`], [`Ipam`] - Network configuration components
 //! - [`Cmd`] - The operation being requested, i.e. the value of `CNI_COMMAND`
@@ -317,8 +317,8 @@ impl NetConf {
             && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
     }
 
-    /// Checks that the network name is present and satisfies
-    /// [`is_valid_name`](Self::is_valid_name), as both sides of the protocol do.
+    /// Checks that the network name is present and matches the character rule stated
+    /// on [`name`](Self::name).
     ///
     /// # Errors
     ///
@@ -482,9 +482,9 @@ pub struct Route {
     pub scope: Option<u32>,
 }
 
-/// `CNIResult` represents the Success result type.
-/// `CmdFm` returns this if it finish successfully.
-/// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-success>.
+/// The success result of an ADD. No other operation returns one.
+///
+/// See <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#add-success>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CNIResult {

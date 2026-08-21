@@ -35,7 +35,7 @@ Both sides share `rscni-types`, so a plugin and a runtime built from this reposi
 rscni/
   types/      rscni-types    — CNI specification types, shared by both sides
   plugin/     rscni-plugin   — write a plugin
-  compat/     rscni          — deprecated 0.3.0 shim for the rename
+  rscni/      rscni          — deprecated 0.3.0 shim for the rename
   examples/                  — example plugins (not published)
 tests/
   integration/               — cross-crate tests (not published)
