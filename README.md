@@ -22,10 +22,10 @@ Both sides share `rscni-types`, so a plugin and a runtime built from this reposi
 > # before
 > rscni = "0.2"
 > # after
-> rscni-plugin = "0.3"
+> rscni-plugin = "0.4"
 > ```
 >
-> Then replace `rscni::` with `rscni_plugin::`. The module layout and feature names are unchanged. [`rscni` 0.3.0](./rscni) is a deprecated shim that re-exports `rscni-plugin` under the old paths so existing code keeps compiling; it will not be updated again.
+> Then replace `rscni::` with `rscni_plugin::`. The module paths and feature names are the same, but several signatures changed in 0.4; the [release notes](https://github.com/terassyi/rscni/releases) list them. [`rscni` 0.3.0](./rscni) is a deprecated shim that re-exports `rscni-plugin` 0.3.x under the old paths; it will not be updated again.
 >
 > The rename happened because the bare name `rscni` did not say which side of CNI it implemented.
 

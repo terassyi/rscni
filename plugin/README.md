@@ -11,7 +11,7 @@ A Rust library for building [CNI (Container Network Interface)](https://www.cni.
 This is the *plugin* side of CNI: the process a container runtime invokes. To invoke plugins instead, see `rscni-runtime` (planned).
 
 > [!IMPORTANT]
-> **Renamed from `rscni`.** If you depend on `rscni` 0.2.x, change the dependency to `rscni-plugin = "0.3"` and replace `rscni::` with `rscni_plugin::`; the module layout is unchanged. `rscni` 0.3.0 is a deprecated shim that re-exports this crate to ease the move.
+> **Renamed from `rscni`.** If you depend on `rscni` 0.2.x, change the dependency to `rscni-plugin` and replace `rscni::` with `rscni_plugin::`. The module paths and feature names are the same, but several signatures changed in 0.4; the [release notes](https://github.com/terassyi/rscni/releases) list them. If you want the rename without the API changes, [`rscni` 0.3.0](https://crates.io/crates/rscni) is a deprecated shim that re-exports `rscni-plugin` 0.3.x.
 
 ## Features
 
@@ -26,14 +26,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rscni-plugin = "0.3"
+rscni-plugin = "0.4"
 ```
 
 For async support, you need to enable the `async` feature and add `async-trait` and an async runtime (such as `tokio`):
 
 ```toml
 [dependencies]
-rscni-plugin = { version = "0.3", features = ["async"] }
+rscni-plugin = { version = "0.4", features = ["async"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```

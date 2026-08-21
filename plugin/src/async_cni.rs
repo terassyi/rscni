@@ -4,7 +4,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rscni-plugin = { version = "0.3", features = ["async"] }
+//! rscni-plugin = { version = "0.4", features = ["async"] }
 //! ```
 
 use std::io::Write;

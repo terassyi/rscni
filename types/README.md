@@ -22,7 +22,7 @@ Both of the above depend on this crate and re-export its types, so a plugin and 
 
 ```toml
 [dependencies]
-rscni-types = "0.1"
+rscni-types = "0.2"
 ```
 
 ## Contents
