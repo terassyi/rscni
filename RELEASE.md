@@ -61,9 +61,10 @@ just test
 just package   # every publishable crate packages cleanly
 ```
 
-`just package` only passes after step 2: it verifies the packaged crates against
-crates.io plus each other, so with the old (already published) version numbers still
-in place it resolves the published contents and fails.
+`just package` packages all three crates in one invocation. Each crate verifies against
+the crates just packaged, not against crates.io, so the version numbers do not change
+the result. This step also passes before step 2. A successful run does not prove that
+you updated the versions, so check them yourself.
 
 ### 4. Create a Release Pull Request
 

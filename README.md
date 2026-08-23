@@ -13,7 +13,7 @@ Rust libraries for both sides of [CNI (Container Network Interface)](https://www
 | `rscni-runtime` | *planned* | Invoke CNI plugins — the Rust counterpart to Go's [`libcni`](https://github.com/containernetworking/cni/tree/v1.3.0/libcni) |
 | [`rscni-types`](./types) | [![crates.io](https://img.shields.io/crates/v/rscni-types.svg)](https://crates.io/crates/rscni-types) | Work with the specification types on their own |
 
-Both sides share `rscni-types`, so a plugin and a runtime built from this repository agree on the wire format by construction rather than by convention. Keeping them together also means each can serve as the other's reference implementation — `rscni-runtime` is tested by driving the `rscni-plugin`-based example plugins.
+`rscni-types` defines the wire format for both sides. A plugin and a runtime built from this repository therefore agree on it without having to be kept in sync by hand. Keeping both in one repository also lets each one test the other: `rscni-runtime` will be tested by running the example plugins, which are built on `rscni-plugin`.
 
 > [!IMPORTANT]
 > **`rscni` has been renamed to `rscni-plugin`.**
@@ -22,10 +22,10 @@ Both sides share `rscni-types`, so a plugin and a runtime built from this reposi
 > # before
 > rscni = "0.2"
 > # after
-> rscni-plugin = "0.3"
+> rscni-plugin = "0.4"
 > ```
 >
-> Then replace `rscni::` with `rscni_plugin::`. The module layout and feature names are unchanged. [`rscni` 0.3.0](./rscni) is a deprecated shim that re-exports `rscni-plugin` under the old paths so existing code keeps compiling; it will not be updated again.
+> Then replace `rscni::` with `rscni_plugin::`. The module paths and feature names are the same, but several signatures changed in 0.4; the [release notes](https://github.com/terassyi/rscni/releases) list them. [`rscni` 0.3.0](./rscni) is a deprecated shim that re-exports `rscni-plugin` 0.3.x under the old paths; it will not be updated again.
 >
 > The rename happened because the bare name `rscni` did not say which side of CNI it implemented.
 
@@ -35,7 +35,7 @@ Both sides share `rscni-types`, so a plugin and a runtime built from this reposi
 rscni/
   types/      rscni-types    — CNI specification types, shared by both sides
   plugin/     rscni-plugin   — write a plugin
-  compat/     rscni          — deprecated 0.3.0 shim for the rename
+  rscni/      rscni          — deprecated 0.3.0 shim for the rename
   examples/                  — example plugins (not published)
 tests/
   integration/               — cross-crate tests (not published)
