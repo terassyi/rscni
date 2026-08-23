@@ -152,6 +152,17 @@ impl SpecVersion {
         Self(major, minor, patch)
     }
 
+    /// Resolves a configuration's declared `cniVersion`: empty — the in-memory form of
+    /// an absent key, a JSON `null`, and the empty string alike — means 0.1.0, the only
+    /// version to predate the key (added in 0.2.0). Only that key is lenient; an empty
+    /// entry in a `cniVersions` array is malformed, so parse those with [`FromStr`].
+    pub(crate) fn from_declared(declared: &str) -> Result<Self, Error> {
+        if declared.is_empty() {
+            return Ok(Self(0, 1, 0));
+        }
+        declared.parse()
+    }
+
     /// Checks that `cmd` exists at this specification version.
     ///
     /// The specification introduces operations at particular versions — CHECK at

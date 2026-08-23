@@ -233,18 +233,6 @@ fn bool_or_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<b
     }
 }
 
-/// Resolves a declared `cniVersion` value: empty — the in-memory form of an absent
-/// key, a JSON `null`, and the empty string alike — means 0.1.0, the only version to
-/// predate the key (added in 0.2.0).
-fn declared_version(declared: &str) -> Result<SpecVersion, Error> {
-    if declared.is_empty() {
-        "0.1.0"
-    } else {
-        declared
-    }
-    .parse()
-}
-
 /// `NetConf` will be given as a JSON serialized data from stdin when plugin is called.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#section-1-network-configuration-format>.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -318,7 +306,7 @@ impl NetConf {
     ///
     /// Returns [`Error::FailedToDecode`] if the declared version is malformed.
     pub fn version(&self) -> Result<SpecVersion, Error> {
-        declared_version(&self.cni_version)
+        SpecVersion::from_declared(&self.cni_version)
     }
 
     /// The character rule the specification states for network names and, identically,
@@ -400,7 +388,7 @@ impl NetConfList {
     ///
     /// Returns [`Error::FailedToDecode`] if any declared version is malformed.
     pub fn version(&self) -> Result<SpecVersion, Error> {
-        let declared = declared_version(&self.cni_version)?;
+        let declared = SpecVersion::from_declared(&self.cni_version)?;
         let mut best = None;
         for candidate in self
             .cni_versions
