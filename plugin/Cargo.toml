@@ -1,6 +1,6 @@
 [package]
 name = "rscni-plugin"
-version = "0.3.0"
+version = "0.4.0"
 description = "CNI plugin library for Rust"
 documentation = "https://docs.rs/rscni-plugin"
 keywords.workspace = true
@@ -18,7 +18,7 @@ std = []
 async = ["async-trait"]
 
 [dependencies]
-rscni-types = { version = "0.1.0", path = "../types" }
+rscni-types = { version = "0.2.0", path = "../types" }
 async-trait = { workspace = true, optional = true }
 serde_json.workspace = true
 
