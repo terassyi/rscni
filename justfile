@@ -59,14 +59,14 @@ clean:
 doc:
     cargo doc --workspace --all-features
 
-# A release-preparation check, not a development one: run it after the version bump
-# (RELEASE.md step 3). Before the bump it fails by construction — the packaged crates
-# verify against crates.io, where the current version numbers resolve to the already
-# published (older) contents. All three crates go in one invocation: cargo then
-# verifies each packaged crate against the others it just built, so the set passes
-# before anything is actually published. The dedicated target directory is wiped
-# first because a verify build reuses artifacts by version number, and a leftover
-# from packaging different contents under the same version links stale rlibs.
+# All three crates are packaged in one invocation. Cargo builds a temporary registry from
+# them, so each crate verifies against the crates just packaged, not against crates.io.
+# The version numbers therefore do not change the result. This recipe also passes before
+# a version bump, so a successful run does not prove that the bump was done.
+#
+# The target directory is deleted first, because a verify build reuses artifacts by
+# version number. An artifact left from packaging different content under the same
+# version would link an outdated rlib.
 
 # Verify the publishable crates package cleanly (run after a version bump)
 package:
