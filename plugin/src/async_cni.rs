@@ -108,7 +108,7 @@ pub trait Cni {
     async fn check(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the STATUS command for the CNI plugin.
-    /// <https://www.cni.dev/docs/spec/#status-check-plugin-status>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#status-check-plugin-status>
     ///
     /// This method checks if the plugin is ready to service ADD requests.
     /// A plugin must return success (exit with zero) if it is ready.
@@ -117,14 +117,14 @@ pub trait Cni {
     /// # Errors
     ///
     /// Returns an error if the plugin is not available:
-    /// - [`Error::PluginNotAvailable`](../error/enum.Error.html#variant.PluginNotAvailable) (code 50):
+    /// - [`Error::PluginNotAvailable`] (code 50):
     ///   The plugin cannot service ADD requests.
-    /// - [`Error::PluginNotAvailableLimitedConnectivity`](../error/enum.Error.html#variant.PluginNotAvailableLimitedConnectivity) (code 51):
+    /// - [`Error::PluginNotAvailableLimitedConnectivity`] (code 51):
     ///   The plugin cannot service ADD requests, and existing containers may have limited connectivity.
     async fn status(&self, args: Args) -> Result<(), Error>;
 
     /// Executes the GC (Garbage Collection) command for the CNI plugin.
-    /// <https://www.cni.dev/docs/spec/#gc-clean-up-any-stale-resources>
+    /// <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#gc-clean-up-any-stale-resources>
     ///
     /// The GC command provides a way for runtimes to specify the expected set of
     /// attachments to a network. The plugin should remove any resources related to

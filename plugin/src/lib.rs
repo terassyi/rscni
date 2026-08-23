@@ -1,19 +1,21 @@
-//! `RsCNI` is a CNI plugin library for Rust.
-//! `RsCNI` helps you to implement CNI plugins easily by abstracting common operations.
-//! `RsCNI` offers trait based design for both sync and async CNI plugins.
-//!
-//! The entry point is the `Plugin` struct in the [`cni`] or [`async_cni`] module.
-//! Your CNI plugin struct should implement the `Cni` trait defined in the respective module.
+//! A library for writing CNI plugins in Rust.
 //!
 //! This crate is the *plugin* side of CNI: the process a container runtime invokes.
 //! For the calling side, see `rscni-runtime` (planned).
+//!
+//! Write a type that implements the `Cni` trait, then pass it to `Plugin::run`.
+//! `Plugin::run` reads the `CNI_*` environment variables and stdin, calls the method for
+//! the requested operation, and writes the result. Both `Cni` and `Plugin` are in the
+//! [`cni`] module. The [`async_cni`] module has async versions of both, behind the
+//! `async` feature.
+//!
 //! The specification types both sides exchange live in
 //! [`rscni-types`](https://docs.rs/rscni-types) and are re-exported here, so
 //! `rscni_plugin::types::NetConf` and `rscni_types::types::NetConf` are the same type.
 //!
-//! Please see [rscni-debug](https://github.com/terassyi/rscni/blob/main/examples/README.md) for the example implementation.
-//! To use async version of rscni, please use it with `feature=async` flag.
-//! The usage of async version, see [async-rscni-debug](https://github.com/terassyi/rscni/blob/main/examples/async_rscni_debug.rs).
+//! Complete examples:
+//! [rscni-debug](https://github.com/terassyi/rscni/blob/main/examples/rscni_debug.rs) and
+//! [async-rscni-debug](https://github.com/terassyi/rscni/blob/main/examples/async_rscni_debug.rs).
 //!
 //! # Quick start
 //!
