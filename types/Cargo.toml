@@ -1,6 +1,6 @@
 [package]
 name = "rscni-types"
-version = "0.1.0"
+version = "0.2.0"
 description = "CNI specification types shared by rscni-plugin and rscni-runtime"
 documentation = "https://docs.rs/rscni-types"
 keywords.workspace = true

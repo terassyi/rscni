@@ -24,7 +24,7 @@ async-trait = ["rscni-plugin/async-trait"]
 
 [dependencies]
 # `default-features = false` so that `std` is genuinely forwarded rather than always on.
-rscni-plugin = { version = "0.3.0", path = "../plugin", default-features = false }
+rscni-plugin = { version = "0.4.0", path = "../plugin", default-features = false }
 
 [package.metadata.docs.rs]
 # `async_cni` re-exports a feature-gated module, so it only exists with `async` on.
