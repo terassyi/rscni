@@ -235,6 +235,9 @@ impl Plugin {
     ///     }
     /// }
     /// ```
+    // Not `Send`, and deliberately so: making it `Send` means bounding `Cni` on `Sync`,
+    // which every implementor would pay for. A plugin process runs one operation and
+    // exits, so nothing here is ever sent across threads.
     #[allow(clippy::future_not_send)]
     pub async fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
         self.run_with::<T, OsEnv, StdIo>(cni).await
@@ -272,6 +275,7 @@ impl Plugin {
     /// [`run`](Self::run) with its environment and I/O seams exposed, so tests can
     /// assert what actually lands on stdout — the success result and the error
     /// result structure both exist only on this side of `inner_run`.
+    // Not `Send`, for the reason given on `run`.
     #[allow(clippy::future_not_send)]
     async fn run_with<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<(), Error> {
         // Flushed explicitly: the real stdout is buffered and its exit-time flush
@@ -298,6 +302,7 @@ impl Plugin {
         }
     }
 
+    // Not `Send`, for the reason given on `run`.
     #[allow(clippy::future_not_send)]
     async fn inner_run<C: Cni, E: Env, I: Io>(&self, cni: &C) -> Result<String, Error> {
         // CNI_COMMAND is required for every operation, so unset (or empty, the same
