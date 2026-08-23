@@ -235,9 +235,8 @@ impl Plugin {
     ///     }
     /// }
     /// ```
-    // Not `Send`, and deliberately so: making it `Send` means bounding `Cni` on `Sync`,
-    // which every implementor would pay for. A plugin process runs one operation and
-    // exits, so nothing here is ever sent across threads.
+    // `#[async_trait]` already forces implementors to be `Sync`, so these futures are
+    // `Send` in practice; clippy cannot see it without a redundant `Cni: Sync` bound.
     #[allow(clippy::future_not_send)]
     pub async fn run<T: Cni>(&self, cni: &T) -> Result<(), Error> {
         self.run_with::<T, OsEnv, StdIo>(cni).await
