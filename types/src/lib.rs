@@ -2,21 +2,21 @@
 //!
 //! This crate holds the data structures and error type defined by the
 //! [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md),
-//! and nothing else. It knows how to represent a CNI conversation but never
-//! takes part in one.
+//! and nothing else. It contains no code that invokes a plugin, and none that is
+//! invoked as one.
 //!
-//! Both sides of that conversation build on it:
+//! Both sides build on it:
 //!
 //! - [`rscni-plugin`](https://docs.rs/rscni-plugin) — for writing a CNI plugin, the
 //!   process a container runtime invokes.
 //! - `rscni-runtime` (planned) — for invoking CNI plugins, the
 //!   Rust counterpart to Go's `libcni`.
 //!
-//! Sharing the types means a plugin and a runtime written with these crates agree on
-//! the wire format by construction, and neither has to re-derive the specification.
+//! Because they share these types, a plugin and a runtime written with them agree on
+//! the wire format, and neither has to read the specification again.
 //!
-//! You normally depend on this crate directly only when you need the types without
-//! either side's machinery — for example to parse a `.conflist` file.
+//! Depend on this crate directly only when you need the types without either side's
+//! machinery, for example to parse a `.conflist` file.
 //!
 //! # Contents
 //!

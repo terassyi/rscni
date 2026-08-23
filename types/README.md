@@ -6,7 +6,7 @@
 
 Shared [CNI (Container Network Interface)](https://www.cni.dev/) specification types for Rust, following the [CNI specification v1.1.0](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md).
 
-This crate holds the data structures and error type the specification defines, and nothing else. It knows how to represent a CNI conversation but never takes part in one.
+This crate holds the data structures and error type the specification defines, and nothing else. It contains no code that invokes a plugin, and none that is invoked as one.
 
 ## Which crate do you want?
 
@@ -16,7 +16,7 @@ This crate holds the data structures and error type the specification defines, a
 | `rscni-runtime` (planned) | Invoke CNI plugins — the Rust counterpart to Go's `libcni` |
 | `rscni-types` | Work with the specification types on their own |
 
-Both of the above depend on this crate and re-export its types, so a plugin and a runtime built with them agree on the wire format by construction. You depend on `rscni-types` directly when you want the types without either side's machinery — parsing a `.conflist` file, for example.
+`rscni-plugin` depends on this crate and re-exports its types, and `rscni-runtime` will do the same. A plugin and a runtime built with them therefore agree on the wire format. Depend on `rscni-types` directly when you want the types without either side's machinery, for example to parse a `.conflist` file.
 
 ## Installation
 

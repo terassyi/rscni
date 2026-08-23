@@ -13,7 +13,7 @@ Rust libraries for both sides of [CNI (Container Network Interface)](https://www
 | `rscni-runtime` | *planned* | Invoke CNI plugins — the Rust counterpart to Go's [`libcni`](https://github.com/containernetworking/cni/tree/v1.3.0/libcni) |
 | [`rscni-types`](./types) | [![crates.io](https://img.shields.io/crates/v/rscni-types.svg)](https://crates.io/crates/rscni-types) | Work with the specification types on their own |
 
-Both sides share `rscni-types`, so a plugin and a runtime built from this repository agree on the wire format by construction rather than by convention. Keeping them together also means each can serve as the other's reference implementation — `rscni-runtime` is tested by driving the `rscni-plugin`-based example plugins.
+`rscni-types` defines the wire format for both sides. A plugin and a runtime built from this repository therefore agree on it without having to be kept in sync by hand. Keeping both in one repository also lets each one test the other: `rscni-runtime` will be tested by running the example plugins, which are built on `rscni-plugin`.
 
 > [!IMPORTANT]
 > **`rscni` has been renamed to `rscni-plugin`.**
