@@ -30,19 +30,19 @@ use crate::util::{Env, Io};
 #[derive(Debug, Default, Clone)]
 pub struct Args {
     /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
-    pub container_id: Option<ContainerId>,
+    pub(crate) container_id: Option<ContainerId>,
     /// A reference to the container's "isolation domain".
     /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
-    pub netns: Option<PathBuf>,
+    pub(crate) netns: Option<PathBuf>,
     /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    pub ifname: Option<InterfaceName>,
+    pub(crate) ifname: Option<InterfaceName>,
     /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
     #[allow(clippy::struct_field_names)]
-    pub args: Option<String>,
+    pub(crate) args: Option<String>,
     /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
-    pub path: Vec<PathBuf>,
+    pub(crate) path: Vec<PathBuf>,
     /// Please see [`NetConf`].
-    pub config: NetConf,
+    pub(crate) config: NetConf,
 }
 
 impl Args {

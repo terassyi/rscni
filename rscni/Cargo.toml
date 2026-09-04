@@ -21,6 +21,7 @@ async = ["rscni-plugin/async"]
 # implicit `async-trait` feature; a user who listed it must keep resolving. It forwards
 # to rscni-plugin's own implicit feature of the same name.
 async-trait = ["rscni-plugin/async-trait"]
+test-util = ["rscni-plugin/test-util"]
 
 [dependencies]
 # `default-features = false` so that `std` is genuinely forwarded rather than always on.
