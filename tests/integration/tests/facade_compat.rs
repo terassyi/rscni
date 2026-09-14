@@ -24,9 +24,9 @@ use async_trait::async_trait;
 use rscni::async_cni::{Cni as AsyncCni, Plugin as AsyncPlugin};
 use rscni::cni::{Cni, Plugin};
 use rscni::error::Error;
-use rscni::test_util::ArgsBuilder;
 use rscni::types::{Args, CNIResult, NetConf};
 use rscni::version::{PluginInfo, SpecVersion};
+use rscni_plugin::test_util::ArgsBuilder;
 use serde_json::json;
 
 struct SyncPlugin;

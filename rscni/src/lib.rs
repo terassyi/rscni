@@ -42,9 +42,6 @@
 
 pub use rscni_plugin::{error, types, version};
 
-#[cfg(any(feature = "test-util", doc))]
-pub use rscni_plugin::test_util;
-
 #[cfg(feature = "std")]
 pub mod cni {
     pub use rscni_plugin::cni::*;

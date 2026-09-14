@@ -7,7 +7,8 @@ edition.workspace = true
 [dev-dependencies]
 # `rscni` is the deprecated 0.3.0 facade. `facade_compat` depends on it on purpose, to
 # prove the module paths 0.2.x used still resolve.
-rscni = { path = "../../rscni", features = ["async", "test-util"] }
+rscni = { path = "../../rscni", features = ["async"] }
+rscni-plugin = { path = "../../plugin", features = ["test-util"] }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
