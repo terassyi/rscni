@@ -1,9 +1,9 @@
-//! Test-only construction of [`Args`].
+//! Test-only construction of [`Args`](crate::types::Args).
 //!
-//! [`crate::args::ArgsBuilder`] reads each field from the `CNI_*` environment and
+//! `crate::args::ArgsBuilder` reads each field from the `CNI_*` environment and
 //! stdin, which a unit test cannot easily control. This builder takes the same
-//! fields as plain arguments instead, so tests can produce an [`Args`] without
-//! setting environment variables or piping stdin.
+//! fields as plain arguments instead, so tests can produce an [`Args`](crate::types::Args)
+//! without setting environment variables or piping stdin.
 
 use std::{env, path::PathBuf};
 
@@ -16,7 +16,7 @@ use crate::args::Args;
 
 /// Builder for [`Args`], with each field set directly instead of read from the
 /// environment. See the module docs for why this exists alongside
-/// [`crate::args::ArgsBuilder`].
+/// `crate::args::ArgsBuilder`.
 #[derive(Debug)]
 pub struct ArgsBuilder {
     container_id: Option<ContainerId>,
