@@ -19,6 +19,7 @@ This is the *plugin* side of CNI: the process a container runtime invokes. To in
 - **Async Support**: Optional async/await support for high-performance plugins
 - **CNI Spec Compliant**: Supports CNI specification v0.3.0, v0.3.1, v0.4.0, v1.0.0 and v1.1.0
 - **Well-tested**: Comprehensive unit tests and integration tests
+- **Testable plugins**: `test_util::ArgsBuilder` builds `Args` directly, without the `CNI_*` environment or stdin
 
 ## Installation
 
@@ -36,6 +37,13 @@ For async support, you need to enable the `async` feature and add `async-trait` 
 rscni-plugin = { version = "0.4", features = ["async"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
+```
+
+For testing, enable the `test-util` feature as a dev-dependency to get `test_util::ArgsBuilder` (see [Testing your plugin](#testing-your-plugin)):
+
+```toml
+[dev-dependencies]
+rscni-plugin = { version = "0.4", features = ["test-util"] }
 ```
 
 ## Quick Start
@@ -135,12 +143,41 @@ async fn main() {
 }
 ```
 
+## Testing your plugin
+
+`Args` is normally built by [`Plugin::run`](https://docs.rs/rscni-plugin/latest/rscni_plugin/cni/struct.Plugin.html) from the `CNI_*` environment and stdin, which a unit test cannot easily control. With the `test-util` feature enabled, `test_util::ArgsBuilder` builds one directly, so you can call your `Cni` methods without setting environment variables:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use rscni_plugin::{cni::Cni, error::Error, test_util::ArgsBuilder};
+
+    use super::MyCniPlugin;
+
+    #[test]
+    fn add_accepts_a_minimal_config() -> Result<(), Error> {
+        let args = ArgsBuilder::new()
+            .container_id("test-container")?
+            .netns("/run/netns/test")
+            .ifname("eth0")?
+            .config(r#"{"cniVersion":"1.1.0","name":"test-net","type":"my-plugin"}"#)?
+            .build()?;
+
+        MyCniPlugin.add(args)?;
+        Ok(())
+    }
+}
+```
+
+Unset fields (`container_id`, `netns`, `ifname`, `args`, `path`) default the same way an absent environment variable does, so a test only needs to set what its command requires — see the CNI spec's [parameter table](https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#parameters) for which fields each command needs.
+
 ## CNI Data Types
 
 - `types::Args` - CNI command arguments (container ID, netns, ifname, etc.)
 - `types::NetConf` - Network configuration from stdin
 - `types::CNIResult` - ADD result: interfaces, IPs, routes, DNS
 - `version::PluginInfo` - Plugin version information
+- `test_util::ArgsBuilder` - builds `Args` for tests, behind the `test-util` feature
 
 Everything except `Args` is re-exported from [`rscni-types`](https://crates.io/crates/rscni-types), so `rscni_plugin::types::NetConf` and `rscni_types::types::NetConf` are the same type. `Args` is specific to being invoked as a plugin, which is why it lives here.
 

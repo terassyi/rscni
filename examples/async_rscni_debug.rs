@@ -163,3 +163,27 @@ STDIN_DATA: {}
     );
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use rscni_plugin::test_util::ArgsBuilder;
+
+    use super::*;
+
+    #[test]
+    fn output_args_reports_every_field() -> Result<(), Error> {
+        let args = ArgsBuilder::new()
+            .container_id("c1")?
+            .netns("/run/netns/test")
+            .ifname("eth0")?
+            .config(r#"{"cniVersion":"1.1.0","name":"test-net","type":"async-rscni-debug"}"#)?
+            .build()?;
+
+        let out = output_args("Add", &args)?;
+
+        assert!(out.contains("CNI_COMMAND: Add"));
+        assert!(out.contains("CNI_CONTAINERID: c1"));
+        assert!(out.contains("CNI_IFNAME: eth0"));
+        Ok(())
+    }
+}
