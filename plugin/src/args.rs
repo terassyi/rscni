@@ -27,7 +27,7 @@ use crate::util::{Env, Io};
 /// `config` field is given as a JSON format data([`NetConf`]) from stdin.
 /// Depending on the type of command, some fields are omitted.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Args {
     /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
     pub(crate) container_id: Option<ContainerId>,

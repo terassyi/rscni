@@ -99,5 +99,5 @@ mod util;
 ///
 /// Behind the `test-util` feature; for the test code of crates that implement
 /// [`Cni`](crate::cni::Cni).
-#[cfg(feature = "test-util")]
+#[cfg(any(feature = "test-util", doc))]
 pub mod test_util;

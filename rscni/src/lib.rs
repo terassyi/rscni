@@ -42,7 +42,7 @@
 
 pub use rscni_plugin::{error, types, version};
 
-#[cfg(feature = "test-util")]
+#[cfg(any(feature = "test-util", doc))]
 pub use rscni_plugin::test_util;
 
 #[cfg(feature = "std")]

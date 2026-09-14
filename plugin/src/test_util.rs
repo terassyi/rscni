@@ -2,9 +2,7 @@ use std::{env, path::PathBuf};
 
 use rscni_types::{
     error::Error,
-    types::{
-        CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd, ContainerId, InterfaceName, NetConf,
-    },
+    types::{ContainerId, InterfaceName, NetConf},
 };
 
 use crate::args::Args;
@@ -87,44 +85,6 @@ impl ArgsBuilder {
         self.config =
             serde_json::from_str(config).map_err(|e| Error::FailedToDecode(e.to_string()))?;
         Ok(self)
-    }
-
-    /// Checks the environment-sourced fields against the spec's parameter matrix for `cmd`.
-    ///
-    /// | command | required |
-    /// |---|---|
-    /// | ADD, CHECK | `CNI_CONTAINERID`, `CNI_NETNS`, `CNI_IFNAME` |
-    /// | DEL | `CNI_CONTAINERID`, `CNI_IFNAME` — `CNI_NETNS` optional, as DEL must
-    ///   complete after the namespace is gone |
-    /// | GC | `CNI_PATH` |
-    /// | STATUS, VERSION | nothing |
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::InvalidEnvValue`] naming every variable `cmd` requires and
-    /// the builder lacks.
-    pub fn validate(self, cmd: Cmd) -> Result<Self, Error> {
-        let mut missing = Vec::new();
-        match cmd {
-            Cmd::Add | Cmd::Check | Cmd::Del => {
-                if self.container_id.is_none() {
-                    missing.push(CNI_CONTAINERID);
-                }
-                if self.netns.is_none() && !matches!(cmd, Cmd::Del) {
-                    missing.push(CNI_NETNS);
-                }
-                if self.ifname.is_none() {
-                    missing.push(CNI_IFNAME);
-                }
-            }
-            Cmd::Gc if self.path.is_empty() => missing.push(CNI_PATH),
-            _ => {}
-        }
-        if missing.is_empty() {
-            Ok(self)
-        } else {
-            Err(Error::missing_env(&missing))
-        }
     }
 
     /// Consumes the builder and produces the [`Args`].
@@ -301,49 +261,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case::add_required_only(Cmd::Add, "c1", "/ns", "eth0", "")]
-    #[case::check_required_only(Cmd::Check, "c1", "/ns", "eth0", "")]
+    #[case::add_required_only("c1", "/ns", "eth0", "")]
+    #[case::check_required_only("c1", "/ns", "eth0", "")]
     // CNI_NETNS is optional for DEL: teardown must complete after the netns is gone.
-    #[case::del_without_netns(Cmd::Del, "c1", "", "eth0", "")]
-    #[case::gc_with_path(Cmd::Gc, "", "", "", "/opt/cni/bin")]
-    #[case::status_bare(Cmd::Status, "", "", "", "")]
-    #[case::version_bare(Cmd::Version, "", "", "", "")]
+    #[case::del_without_netns("c1", "", "eth0", "")]
+    #[case::gc_with_path("", "", "", "/opt/cni/bin")]
+    #[case::status_bare("", "", "", "")]
+    #[case::version_bare("", "", "", "")]
     fn validate_accepts_a_complete_environment(
-        #[case] cmd: Cmd,
         #[case] container_id: &str,
         #[case] netns: &str,
         #[case] ifname: &str,
         #[case] path: &str,
     ) -> Result<(), Error> {
-        matrix_builder(container_id, netns, ifname, path)?.validate(cmd)?;
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::add_without_netns(Cmd::Add, "c1", "", "eth0", "", "CNI_NETNS")]
-    #[case::add_without_container_id(Cmd::Add, "", "/ns", "eth0", "", "CNI_CONTAINERID")]
-    #[case::del_without_container_id(Cmd::Del, "", "", "eth0", "", "CNI_CONTAINERID")]
-    #[case::del_without_ifname(Cmd::Del, "c1", "", "", "", "CNI_IFNAME")]
-    #[case::gc_without_path(Cmd::Gc, "", "", "", "", "CNI_PATH")]
-    // Missing variables are reported together, in the reference's wording and order.
-    #[case::add_bare(Cmd::Add, "", "", "", "", "[CNI_CONTAINERID,CNI_NETNS,CNI_IFNAME]")]
-    fn validate_names_every_missing_variable(
-        #[case] cmd: Cmd,
-        #[case] container_id: &str,
-        #[case] netns: &str,
-        #[case] ifname: &str,
-        #[case] path: &str,
-        #[case] missing: &str,
-    ) -> Result<(), Error> {
-        match matrix_builder(container_id, netns, ifname, path)?.validate(cmd) {
-            Err(Error::InvalidEnvValue(details)) => {
-                assert!(
-                    details.contains(missing),
-                    "details must name {missing}: {details}"
-                );
-            }
-            other => panic!("must fail naming {missing}, got: {other:?}"),
-        }
+        matrix_builder(container_id, netns, ifname, path)?;
         Ok(())
     }
 }

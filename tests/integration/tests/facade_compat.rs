@@ -24,8 +24,10 @@ use async_trait::async_trait;
 use rscni::async_cni::{Cni as AsyncCni, Plugin as AsyncPlugin};
 use rscni::cni::{Cni, Plugin};
 use rscni::error::Error;
+use rscni::test_util::ArgsBuilder;
 use rscni::types::{Args, CNIResult, NetConf};
 use rscni::version::{PluginInfo, SpecVersion};
+use serde_json::json;
 
 struct SyncPlugin;
 
@@ -70,7 +72,13 @@ fn sync_plugin_builds_through_the_facade() -> Result<(), Box<dyn std::error::Err
 
     // `run()` reads the CNI_* environment and stdin, so it is not called here. The point
     // is that a 0.2.x-shaped `Cni` impl still satisfies the trait.
-    let result = SyncPlugin.add(Args::default())?;
+    let config = json!({
+        "cniVersion": "0.4.0",
+        "name": "my_cni",
+        "type": "my_cni"
+    });
+    let args = ArgsBuilder::new().config(&config.to_string())?.build()?;
+    let result = SyncPlugin.add(args)?;
     assert_eq!(result, CNIResult::default());
     Ok(())
 }
@@ -137,7 +145,13 @@ impl AsyncCni for AsyncTestPlugin {
 #[tokio::test]
 async fn async_plugin_builds_through_the_facade() -> Result<(), Box<dyn std::error::Error>> {
     let _plugin = AsyncPlugin::default();
-    let result = AsyncTestPlugin.add(Args::default()).await?;
+    let config = json!({
+        "cniVersion": "0.4.0",
+        "name": "my_cni",
+        "type": "my_cni"
+    });
+    let args = ArgsBuilder::new().config(&config.to_string())?.build()?;
+    let result = AsyncTestPlugin.add(args).await?;
     assert_eq!(result, CNIResult::default());
     Ok(())
 }
