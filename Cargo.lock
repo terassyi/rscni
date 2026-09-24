@@ -151,6 +151,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "rscni",
+ "rscni-plugin",
  "serde_json",
  "tempfile",
  "tokio",

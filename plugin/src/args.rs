@@ -27,22 +27,22 @@ use crate::util::{Env, Io};
 /// `config` field is given as a JSON format data([`NetConf`]) from stdin.
 /// Depending on the type of command, some fields are omitted.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Args {
     /// Container ID. A unique plaintext identifier for a container, allocated by the runtime.
-    container_id: Option<ContainerId>,
+    pub(crate) container_id: Option<ContainerId>,
     /// A reference to the container's "isolation domain".
     /// If using network namespaces, then a path to the network namespace (e.g. /run/netns/nsname).
-    netns: Option<PathBuf>,
+    pub(crate) netns: Option<PathBuf>,
     /// Name of the interface to create inside the container; if the plugin is unable to use this interface name it must return an error.
-    ifname: Option<InterfaceName>,
+    pub(crate) ifname: Option<InterfaceName>,
     /// Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons.
     #[allow(clippy::struct_field_names)]
-    args: Option<String>,
+    pub(crate) args: Option<String>,
     /// List of paths to search for CNI plugin executables. Paths are separated by an OS-specific list separator; for example ':' on Linux and ';' on Windows.
-    path: Vec<PathBuf>,
+    pub(crate) path: Vec<PathBuf>,
     /// Please see [`NetConf`].
-    config: NetConf,
+    pub(crate) config: NetConf,
 }
 
 impl Args {
