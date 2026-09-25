@@ -21,7 +21,7 @@ on:
         description: 'Dry-run mode (test without publishing)'
         required: true
         type: boolean
-        default: false
+        default: true
 
 env:
   CARGO_TERM_COLOR: always

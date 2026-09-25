@@ -26,6 +26,8 @@ use crate::util::{Env, Io};
 /// All fields except for `config` are given as environment values.
 /// `config` field is given as a JSON format data([`NetConf`]) from stdin.
 /// Depending on the type of command, some fields are omitted.
+/// For tests, build one with [`ArgsBuilder`](crate::test_util::ArgsBuilder), behind the
+/// `test-util` feature.
 /// Please see <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#parameters> and <https://github.com/containernetworking/cni/blob/v1.3.0/SPEC.md#cni-operations>.
 #[derive(Debug, Clone)]
 pub struct Args {

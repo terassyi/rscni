@@ -7,6 +7,9 @@
 //! breaking change to `rscni-plugin` is respelled here rather than caught. Only a
 //! dev-dependency on the published `rscni` would catch that.
 //!
+//! The exception is `rscni_plugin::test_util::ArgsBuilder`. The shim is frozen and does
+//! not forward the `test-util` feature, and without it `Args` has no public constructor.
+//!
 //! One path here is wider than 0.2.x: `rscni::version` was `pub(crate)` then, so
 //! `PluginInfo` was unreachable. The shim exposes it because `rscni-plugin` does. That is
 //! additive, and pinning it costs nothing.
