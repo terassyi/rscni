@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      # One tag per crate: rscni-types-v0.1.0, rscni-plugin-v0.3.0, rscni-v0.3.0, ...
+      # One tag per crate: rscni-types-v0.1.0, rscni-plugin-v0.3.0, ...
       # Tags v0.1.0 through v0.2.1 predate the workspace split and are not matched.
       - '*-v*.*.*'
 
@@ -124,7 +124,7 @@ jobs:
       - name: Dry-run package
         run: |
           rm -rf target/package-verify
-          CARGO_TARGET_DIR=target/package-verify cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
+          CARGO_TARGET_DIR=target/package-verify cargo package -p rscni-types -p rscni-plugin --allow-dirty
 
   # Create GitHub Release (automatic on tag push)
   github-release:

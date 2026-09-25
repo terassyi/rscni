@@ -25,7 +25,7 @@ Rust libraries for both sides of [CNI (Container Network Interface)](https://www
 > rscni-plugin = "0.4"
 > ```
 >
-> Then replace `rscni::` with `rscni_plugin::`. The module paths and feature names are the same, but several signatures changed in 0.4; the [release notes](https://github.com/terassyi/rscni/releases) list them. [`rscni` 0.3.0](./rscni) is a deprecated shim that re-exports `rscni-plugin` 0.3.x under the old paths; it will not be updated again.
+> Then replace `rscni::` with `rscni_plugin::`. The module paths and feature names are the same, but several signatures changed in 0.4; the [release notes](https://github.com/terassyi/rscni/releases) list them. [`rscni` 0.3.0](https://crates.io/crates/rscni) is a deprecated shim that re-exports `rscni-plugin` 0.3.x under the old paths; it will not be updated again.
 >
 > The rename happened because the bare name `rscni` did not say which side of CNI it implemented.
 
@@ -35,10 +35,9 @@ Rust libraries for both sides of [CNI (Container Network Interface)](https://www
 rscni/
   types/      rscni-types    — CNI specification types, shared by both sides
   plugin/     rscni-plugin   — write a plugin
-  rscni/      rscni          — deprecated 0.3.0 shim for the rename
   examples/                  — example plugins (not published)
-tests/
-  integration/               — cross-crate tests (not published)
+  tests/
+    integration/             — cross-crate tests (not published)
 ```
 
 A cargo virtual workspace: each crate is versioned and released independently.

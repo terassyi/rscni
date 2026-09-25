@@ -4,7 +4,6 @@ resolver = "3"
 members = [
   "types",
   "plugin",
-  "rscni",
   "examples",
   "tests/integration",
 ]

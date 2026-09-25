@@ -1,4 +1,6 @@
-use rscni::types::{CNI_ARGS, CNI_COMMAND, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd};
+use rscni_plugin::types::{
+    CNI_ARGS, CNI_COMMAND, CNI_CONTAINERID, CNI_IFNAME, CNI_NETNS, CNI_PATH, Cmd,
+};
 use serde_json::Value;
 use std::env;
 use std::fs;

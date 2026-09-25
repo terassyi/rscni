@@ -12,7 +12,6 @@ on:
         options:
           - rscni-types
           - rscni-plugin
-          - rscni
       version:
         description: 'Version to publish (e.g., 0.1.0)'
         required: true
@@ -66,8 +65,8 @@ jobs:
           cargo build --package rscni-examples
           cargo test --package integration-tests
 
-      # Dependencies must already be on crates.io: rscni-types before rscni-plugin,
-      # rscni-plugin before rscni. A missing one fails here rather than half-publishing.
+      # Dependencies must already be on crates.io: rscni-types before rscni-plugin. A
+      # missing one fails here rather than half-publishing.
       - name: Publish to crates.io
         run: |
           if [ "${{ inputs.dry-run }}" == "true" ]; then
