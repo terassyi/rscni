@@ -84,10 +84,8 @@ jobs:
     strategy:
       fail-fast: false
       # One leg per workspace crate with unit tests, and one per feature set where a
-      # crate has them, all in parallel. The `rscni` compat shim has no unit tests of
-      # its own — the e2e job's facade_compat suite covers it — and the examples and
-      # integration-tests crates belong to the e2e job. A new crate needs a row here
-      # (see RELEASE.md).
+      # crate has them, all in parallel. The examples and integration-tests crates
+      # belong to the e2e job. A new crate needs a row here (see RELEASE.md).
       matrix:
         suite:
           - name: rscni-types
@@ -163,7 +161,6 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-target-e2e-
       - name: Build debug plugins
         run: cargo build --package rscni-examples
-      # Drives the example plugin binaries over env + stdin as a runtime would, and pins
-      # the `rscni` 0.3.0 facade to the module paths 0.2.x exposed.
+      # Drives the example plugin binaries over env + stdin as a runtime would.
       - name: Test end to end
         run: cargo test --package integration-tests

@@ -10,7 +10,6 @@ Each crate is versioned and released independently. Tags are `<crate>-v<version>
 | --- | --- | --- |
 | `rscni-types` | `types` | `rscni-types-v0.1.0` |
 | `rscni-plugin` | `plugin` | `rscni-plugin-v0.3.0` |
-| `rscni` (deprecated shim) | `rscni` | `rscni-v0.3.0` |
 | `rscni-runtime` (planned) | `runtime` | `rscni-runtime-v0.1.0` |
 
 When a crate is added, it needs adding to the root `members`, to `publish.yaml`'s `crate`
@@ -21,13 +20,16 @@ row in `ci.yaml`'s unit-test matrix. The lint command and `release.yaml`'s tests
 Tags `v0.1.0` through `v0.2.1` predate the workspace split and used a bare-version scheme.
 They are left as they are; `release.yaml` only matches the new form.
 
+`rscni` 0.3.0, the deprecated shim for the rename to `rscni-plugin`, is the final release
+of that crate. It is no longer in the workspace; its source is at tag `rscni-v0.3.0`.
+
 ## Dependency order
 
 crates.io rejects a crate whose dependencies are not published yet, so release in this
 order and let each one land before starting the next:
 
 ```
-rscni-types  ←  rscni-plugin  ←  rscni (shim)
+rscni-types  ←  rscni-plugin
              ←  rscni-runtime
 ```
 
@@ -61,7 +63,7 @@ just test
 just package   # every publishable crate packages cleanly
 ```
 
-`just package` packages all three crates in one invocation. Each crate verifies against
+`just package` packages every publishable crate in one invocation. Each crate verifies against
 the crates just packaged, not against crates.io, so the version numbers do not change
 the result. This step also passes before step 2. A successful run does not prove that
 you updated the versions, so check them yourself.

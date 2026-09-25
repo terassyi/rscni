@@ -59,7 +59,7 @@ clean:
 doc:
     cargo doc --workspace --all-features
 
-# All three crates are packaged in one invocation. Cargo builds a temporary registry from
+# The publishable crates are packaged in one invocation. Cargo builds a temporary registry from
 # them, so each crate verifies against the crates just packaged, not against crates.io.
 # The version numbers therefore do not change the result. This recipe also passes before
 # a version bump, so a successful run does not prove that the bump was done.
@@ -71,7 +71,7 @@ doc:
 # Verify the publishable crates package cleanly (run after a version bump)
 package:
     rm -rf target/package-verify
-    CARGO_TARGET_DIR=target/package-verify cargo package -p rscni-types -p rscni-plugin -p rscni --allow-dirty
+    CARGO_TARGET_DIR=target/package-verify cargo package -p rscni-types -p rscni-plugin --allow-dirty
 
 # The manual kind cluster walkthrough for the example plugins. Kept out of this file
 # because it needs docker and kind and never runs in CI, unlike everything above.
