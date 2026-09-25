@@ -27,14 +27,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rscni-plugin = "0.4"
+rscni-plugin = "0.5"
 ```
 
 For async support, you need to enable the `async` feature and add `async-trait` and an async runtime (such as `tokio`):
 
 ```toml
 [dependencies]
-rscni-plugin = { version = "0.4", features = ["async"] }
+rscni-plugin = { version = "0.5", features = ["async"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```
@@ -43,7 +43,7 @@ For testing, enable the `test-util` feature as a dev-dependency to get `test_uti
 
 ```toml
 [dev-dependencies]
-rscni-plugin = { version = "0.4", features = ["test-util"] }
+rscni-plugin = { version = "0.5", features = ["test-util"] }
 ```
 
 ## Quick Start
