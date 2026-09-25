@@ -1,7 +1,7 @@
 # RsCNI debug plugin
 
 `rscni-debug` and `async-rscni-debug` is for debugging CNI plugin development.
-This is based on [containernetworking/cni/plugins/cni](https://github.com/containernetworking/cni/tree/v1.0.0/plugins/debug).
+This is based on [containernetworking/cni/plugins/debug](https://github.com/containernetworking/cni/tree/v1.0.0/plugins/debug).
 
 ## Configuration
 
@@ -80,7 +80,7 @@ CNI_IFNAME: eth0
 CNI_NETNS: Some("/var/run/netns/cni-8e9dfbc7-eaff-12a8-925e-4b280eb12d67")
 CNI_PATH: ["/opt/cni/bin"]
 CNI_ARGS: Some("K8S_POD_INFRA_CONTAINER_ID=0a6a4b09df59d64e3be5cf662808076fee664447a1c90dd05a5d5588e2cd6b5a;K8S_POD_UID=b0e1fc4a-f842-4ec2-8e23-8c0c8da7b5e5;IgnoreUnknown=1;K8S_POD_NAMESPACE=kube-system;K8S_POD_NAME=coredns-787d4945fb-7xrrd"),
-STDIN_DATA: {"cniVersion":"0.3.1","name":"kindnet","type":"rscni-debug","prevResult":{"interfaces":[{"name":"veth3e00fda7","mac":"de:ba:bf:29:5a:80"},{"name":"eth0","mac":"fa:6f:76:59:25:82","sandbox":"/var/run/netns/cni-8e9dfbc7-eaff-12a8-925e-4b280eb12d67"}],"ips":[{"interface":1,"address":"10.244.0.3/24","gateway":"10.244.0.1"}],"routes":[{"dst":"0.0.0.0/0"}],"dns":{}},"cniOutput":"/tmp/cni"}
+STDIN_DATA: {"cniVersion":"0.3.1","name":"kindnet","type":"rscni-debug","prevResult":{"interfaces":[{"name":"veth3e00fda7","mac":"de:ba:bf:29:5a:80"},{"name":"eth0","mac":"fa:6f:76:59:25:82","sandbox":"/var/run/netns/cni-8e9dfbc7-eaff-12a8-925e-4b280eb12d67"}],"ips":[{"interface":1,"address":"10.244.0.3/24","gateway":"10.244.0.1"}],"routes":[{"dst":"0.0.0.0/0"}]},"cniOutput":"/tmp/cni"}
 --------------------
 ```
 
